@@ -23,11 +23,43 @@ DCP := LLM_MODE=$(LLM_MODE) $(DC) --profile $(PROFILE)
 .PHONY: help setup up down restart ps logs build build-api build-worker build-infer \
         build-web migrate revision seed shell-api shell-worker psql redis-cli \
         llm-mode pull-models samples test test-citations citation-check \
-        ingest eval fmt clean-images bootstrap
+        ingest eval fmt clean-images bootstrap \
+        dev dev-setup dev-down dev-reset dev-logs dev-psql serve-gpu
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-18s\033[0m %s\n",$$1,$$2}'
+
+## --------------------------------------------------------------- dev
+#  Local development: GPU work stays on the GPU server, Postgres/Redis run in
+#  Docker here, api and web run on the host with hot reload. See scripts/dev.sh.
+DEV_ENV := docker/.env.dev
+DCDEV := docker compose -f docker/compose.dev.yml
+
+dev-setup: ## Create docker/.env.dev from the example, then edit GPU_HOST
+	@test -f $(DEV_ENV) && echo "$(DEV_ENV) already exists, leaving it alone" || { \
+	  cp docker/.env.dev.example $(DEV_ENV); \
+	  echo "wrote $(DEV_ENV) -- set GPU_HOST, then run 'make dev'"; }
+
+dev: ## Start local dev: deps + migrate + seed + api and web with reload
+	bash scripts/dev.sh $(S)
+
+dev-down: ## Stop the local dev containers (data preserved)
+	$(DCDEV) --profile ingest down
+
+dev-reset: ## Stop dev containers and delete the local dev database
+	$(DCDEV) --profile ingest down -v
+	rm -rf docker/devdata
+
+dev-logs: ## Tail dev container logs, e.g. make dev-logs S=worker
+	$(DCDEV) --profile ingest logs -f --tail=200 $(S)
+
+dev-psql: ## psql into the local dev database
+	$(DCDEV) exec postgres psql -U agents -d agents
+
+serve-gpu: ## On the GPU server: serve ONLY vllm + infer for remote developers
+	$(DCP) up -d llm-gateway infer $(if $(filter dp2,$(LLM_MODE)),vllm-a vllm-b,$(if $(filter tp2,$(LLM_MODE)),vllm-tp,vllm-a))
+	@$(DCP) ps
 
 ## ------------------------------------------------------------- setup
 setup: ## First run on a new machine: create .env with fresh secrets and data dirs

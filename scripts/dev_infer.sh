@@ -17,6 +17,7 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-# cwd must be apps/ (not apps/infer/) — same reasoning as dev_api.sh.
+# cwd must be apps/ (not apps/infer/): infer/__init__.py makes "infer" the
+# importable package name, and Python resolves it from the parent directory.
 uv run --with-requirements ../docker/requirements/infer.txt -- \
   uvicorn infer.app.main:app --reload --port 8001

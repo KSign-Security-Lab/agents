@@ -1,0 +1,499 @@
+<title>Two Machines, One Stack</title>
+
+<!--
+  Rendered as an Artifact: https://claude.ai/code/artifact/cfb43126-9aac-491a-a1c7-db7585980c80
+  Edit this file, then republish it to that same URL — do not add a doctype or
+  <html>/<head>/<body> wrapper, the publisher supplies them.
+-->
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  :root {
+    --bg: #E9EDF1;
+    --surface: #FFFFFF;
+    --surface-2: #F2F5F8;
+    --band: #E4EAEF;
+    --ink: #14181C;
+    --ink-2: #4E5A65;
+    --ink-3: #78848F;
+    --rule: #C9D2DA;
+    --gpu: #A8431E;
+    --gpu-soft: #F7E9E2;
+    --loc: #17677F;
+    --loc-soft: #E2EEF2;
+    --warn: #8A5A05;
+    --warn-soft: #FAF0DC;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "JetBrains Mono", Consolas, monospace;
+    --serif: Charter, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12161A;
+      --surface: #1A1F25;
+      --surface-2: #1F252B;
+      --band: #232B32;
+      --ink: #E6EBEF;
+      --ink-2: #9AA7B2;
+      --ink-3: #77848F;
+      --rule: #333C45;
+      --gpu: #E4885F;
+      --gpu-soft: #2C1E17;
+      --loc: #66B9D2;
+      --loc-soft: #13262D;
+      --warn: #D9A947;
+      --warn-soft: #2A2214;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #12161A;
+    --surface: #1A1F25;
+    --surface-2: #1F252B;
+    --band: #232B32;
+    --ink: #E6EBEF;
+    --ink-2: #9AA7B2;
+    --ink-3: #77848F;
+    --rule: #333C45;
+    --gpu: #E4885F;
+    --gpu-soft: #2C1E17;
+    --loc: #66B9D2;
+    --loc-soft: #13262D;
+    --warn: #D9A947;
+    --warn-soft: #2A2214;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 24px 96px;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  /* ---------------------------------------------------------- masthead */
+  header { padding-top: 64px; display: flex; flex-direction: column; gap: 18px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0;
+  }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(30px, 5vw, 46px);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  h1 .a { color: var(--gpu); }
+  h1 .b { color: var(--loc); }
+
+  .lede { font-size: 19px; color: var(--ink-2); max-width: 60ch; margin: 0; }
+
+  /* ------------------------------------------------------------ figure */
+  figure { margin: 0; display: flex; flex-direction: column; gap: 16px; }
+
+  .scroller {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .scroller svg { display: block; width: 100%; min-width: 860px; height: auto; }
+
+  figcaption {
+    font-size: 15px;
+    color: var(--ink-2);
+    max-width: 68ch;
+  }
+
+  /* SVG theming: every colour comes from a token, so both themes resolve */
+  .panel { fill: var(--surface-2); stroke-width: 1.5; stroke-dasharray: 7 5; }
+  .panel-gpu { stroke: var(--gpu); }
+  .panel-loc { stroke: var(--loc); }
+  .gap-band { fill: var(--band); }
+  .band { fill: var(--surface); stroke: var(--rule); stroke-width: 1; }
+  .node { fill: var(--surface); stroke: var(--rule); stroke-width: 1.25; }
+  .node-opt { fill: none; stroke: var(--rule); stroke-width: 1.25; stroke-dasharray: 5 4; }
+  .svg-title { font-family: var(--mono); font-size: 14px; font-weight: 600; fill: var(--ink); letter-spacing: -0.01em; }
+  .svg-sub { font-family: var(--mono); font-size: 11px; fill: var(--ink-2); }
+  .svg-eyebrow { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.12em; }
+  .e-gpu { fill: var(--gpu); }
+  .e-loc { fill: var(--loc); }
+  .svg-band-label { font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; fill: var(--ink-3); }
+  .svg-edge { font-family: var(--mono); font-size: 11px; fill: var(--ink-2); }
+  .svg-edge-hot { font-family: var(--mono); font-size: 11px; font-weight: 600; fill: var(--gpu); }
+  .head { fill: var(--ink-2); }
+  .head-hot { fill: var(--gpu); }
+  .flow { fill: none; stroke: var(--ink-2); stroke-width: 1.4; }
+  .flow-hot { fill: none; stroke: var(--gpu); stroke-width: 1.8; }
+  .tunnel-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; fill: var(--ink-3); }
+
+  /* ------------------------------------------------------------- cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .card-gpu { border-top: 3px solid var(--gpu); }
+  .card-loc { border-top: 3px solid var(--loc); }
+
+  .card h2 { font-family: var(--mono); font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  .card-gpu h2 { color: var(--gpu); }
+  .card-loc h2 { color: var(--loc); }
+
+  .card .who { font-size: 15px; color: var(--ink-2); margin: -10px 0 0; }
+
+  .step { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 8px; }
+
+  pre {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    margin: 0;
+    padding: 14px 16px;
+    overflow-x: auto;
+    color: var(--ink);
+  }
+
+  pre .c { color: var(--ink-3); }
+  pre .k { color: var(--loc); font-weight: 600; }
+  .card-gpu pre .k { color: var(--gpu); }
+
+  /* ------------------------------------------------------------ tables */
+  h2.section {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 20px;
+  }
+
+  .tbl { overflow-x: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; padding: 13px 18px; border-bottom: 1px solid var(--rule); }
+  tr:last-child td { border-bottom: none; }
+  th {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  td code, .inline {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .chip-gpu { color: var(--gpu); background: var(--gpu-soft); }
+  .chip-loc { color: var(--loc); background: var(--loc-soft); }
+
+  /* ------------------------------------------------------------ callout */
+  .callout {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--warn-soft);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--warn);
+    border-radius: 8px;
+    padding: 20px 24px;
+  }
+  .callout .step { color: var(--warn); margin: 0; }
+  .callout p { margin: 0; font-size: 16px; }
+
+  footer { border-top: 1px solid var(--rule); padding-top: 20px; font-size: 14px; color: var(--ink-3); }
+  footer code { font-family: var(--mono); font-size: 13px; }
+
+  a { color: var(--loc); }
+  a:focus-visible, .scroller:focus-visible { outline: 2px solid var(--loc); outline-offset: 3px; }
+
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">문서 기반 에이전트 · local development</p>
+    <h1><span class="a">One GPU server</span> serves the models.<br><span class="b">Your laptop</span> runs everything else.</h1>
+    <p class="lede">Nothing you run locally needs a GPU, so this works on a Mac. The two services that
+    need CUDA live on the shared box; the two services you actually edit run on your host with hot reload.</p>
+  </header>
+
+  <figure>
+    <div class="scroller" tabindex="0">
+      <svg viewBox="0 0 1020 580" role="img"
+           aria-label="Two machine boundaries. The GPU server runs llm-gateway on port 8602 in front of vllm, and infer on port 8603. Your laptop runs web on port 3000 and api on port 8000 as host processes with hot reload, and postgres on 5433, redis on 6380, and an optional worker in Docker. The api process reaches across the machine boundary to the GPU server over LLM_BASE_URL and INFER_BASE_URL.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon class="head" points="0,1 10,5 0,9"></polygon>
+          </marker>
+          <marker id="ah-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon class="head-hot" points="0,1 10,5 0,9"></polygon>
+          </marker>
+        </defs>
+
+        <!-- the gap between the two machines -->
+        <rect class="gap-band" x="654" y="76" width="70" height="470"></rect>
+        <text class="tunnel-label" transform="translate(693 538) rotate(-90)" text-anchor="start">SSH tunnel, or BIND_ADDR=0.0.0.0</text>
+
+        <!-- ============================ YOUR MACHINE ============================ -->
+        <rect class="panel panel-loc" x="134" y="76" width="520" height="470" rx="12"></rect>
+        <text class="svg-eyebrow e-loc" x="150" y="62">YOUR MACHINE · NO GPU</text>
+
+        <!-- browser, outside both boundaries -->
+        <rect class="node" x="24" y="145" width="86" height="62" rx="6"></rect>
+        <text class="svg-title" x="36" y="171">browser</text>
+        <text class="svg-sub" x="36" y="191">:3000</text>
+        <line class="flow" x1="110" y1="176" x2="174" y2="176" marker-end="url(#ah)"></line>
+        <text class="svg-edge" x="142" y="166" text-anchor="middle">cookie</text>
+
+        <!-- host band -->
+        <rect class="band" x="158" y="112" width="452" height="112" rx="8"></rect>
+        <text class="svg-band-label" x="174" y="132">HOST · HOT RELOAD</text>
+
+        <rect class="node" x="176" y="145" width="180" height="62" rx="6"></rect>
+        <text class="svg-title" x="192" y="171">web</text>
+        <text class="svg-sub" x="192" y="191">:3000 · Next.js</text>
+
+        <rect class="node" x="414" y="145" width="180" height="62" rx="6"></rect>
+        <text class="svg-title" x="430" y="171">api</text>
+        <text class="svg-sub" x="430" y="191">:8000 · FastAPI</text>
+
+        <line class="flow" x1="356" y1="181" x2="412" y2="181" marker-end="url(#ah)"></line>
+        <text class="svg-edge" x="384" y="169" text-anchor="middle">BFF proxy</text>
+
+        <!-- docker band -->
+        <rect class="band" x="158" y="268" width="452" height="188" rx="8"></rect>
+        <text class="svg-band-label" x="174" y="288">DOCKER · make dev</text>
+
+        <rect class="node" x="176" y="300" width="210" height="60" rx="6"></rect>
+        <text class="svg-title" x="192" y="326">postgres</text>
+        <text class="svg-sub" x="192" y="345">:5433 · pgvector</text>
+
+        <rect class="node" x="410" y="300" width="184" height="60" rx="6"></rect>
+        <text class="svg-title" x="426" y="326">redis</text>
+        <text class="svg-sub" x="426" y="345">:6380</text>
+
+        <rect class="node-opt" x="176" y="386" width="418" height="52" rx="6"></rect>
+        <text class="svg-title" x="192" y="410">worker</text>
+        <text class="svg-sub" x="192" y="428">only with INGEST=1 · LibreOffice · OCR · ffmpeg</text>
+
+        <polyline class="flow" points="504,207 504,238 281,238 281,298" marker-end="url(#ah)"></polyline>
+        <text class="svg-edge" x="380" y="231" text-anchor="middle">SQL + vectors</text>
+
+        <line class="flow" x1="548" y1="207" x2="548" y2="298" marker-end="url(#ah)"></line>
+        <text class="svg-edge" x="558" y="258">enqueue</text>
+
+        <line class="flow" x1="502" y1="360" x2="502" y2="384" marker-end="url(#ah)"></line>
+        <text class="svg-edge" x="512" y="378">arq</text>
+
+        <!-- ============================= GPU SERVER ============================= -->
+        <rect class="panel panel-gpu" x="724" y="76" width="272" height="380" rx="12"></rect>
+        <text class="svg-eyebrow e-gpu" x="740" y="62">GPU SERVER · 1–2 GPUs</text>
+
+        <rect class="node" x="748" y="145" width="224" height="58" rx="6"></rect>
+        <text class="svg-title" x="764" y="169">llm-gateway</text>
+        <text class="svg-sub" x="764" y="188">:8602 · nginx</text>
+
+        <rect class="node" x="748" y="240" width="224" height="68" rx="6"></rect>
+        <text class="svg-title" x="764" y="266">vllm</text>
+        <text class="svg-sub" x="764" y="285">EXAONE-4.0-32B-AWQ</text>
+
+        <line class="flow" x1="860" y1="203" x2="860" y2="238" marker-end="url(#ah)"></line>
+        <text class="svg-edge" x="870" y="225">LLM_MODE</text>
+
+        <rect class="node" x="748" y="352" width="224" height="76" rx="6"></rect>
+        <text class="svg-title" x="764" y="377">infer</text>
+        <text class="svg-sub" x="764" y="396">:8603 · bge-m3 · reranker</text>
+        <text class="svg-sub" x="764" y="414">faster-whisper</text>
+
+        <!-- the two hops that cross the machine boundary -->
+        <line class="flow-hot" x1="594" y1="162" x2="746" y2="162" marker-end="url(#ah-hot)"></line>
+        <text class="svg-edge-hot" x="670" y="152" text-anchor="middle">LLM_BASE_URL</text>
+
+        <polyline class="flow-hot" points="594,196 630,196 630,384 746,384" marker-end="url(#ah-hot)"></polyline>
+        <text class="svg-edge-hot" x="688" y="374" text-anchor="middle">INFER_BASE_URL</text>
+      </svg>
+    </div>
+    <figcaption>Only two arrows leave your machine, and both come out of <span class="inline">api</span>.
+    That is the whole coupling: set <span class="inline">GPU_HOST</span> in <span class="inline">docker/.env.dev</span>
+    and those two URLs resolve. Everything inside the left boundary is yours to break.</figcaption>
+  </figure>
+
+  <!-- ================================ commands ================================ -->
+  <section>
+    <h2 class="section">What to run, on which machine</h2>
+    <div class="cards">
+
+      <div class="card card-gpu">
+        <h2>GPU server</h2>
+        <p class="who">Once, by whoever owns the box — then again only after a reboot.</p>
+        <div>
+          <p class="step">First time</p>
+<pre><span class="k">make</span> setup            <span class="c"># docker/.env + secrets</span>
+$EDITOR docker/.env    <span class="c"># VLLM_A_GPUS, BIND_ADDR</span>
+<span class="k">make</span> build</pre>
+        </div>
+        <div>
+          <p class="step">Serve it</p>
+<pre><span class="k">make</span> serve-gpu   <span class="c"># vllm + infer, nothing else</span>
+curl localhost:8602/gateway/health</pre>
+        </div>
+        <p class="who">No Postgres, no Redis, no web, no worker on this box. Those belong to whoever is
+        developing.</p>
+      </div>
+
+      <div class="card card-loc">
+        <h2>Your machine</h2>
+        <p class="who">Every developer, on their own laptop.</p>
+        <div>
+          <p class="step">First time</p>
+<pre><span class="k">make</span> dev-setup
+$EDITOR docker/.env.dev   <span class="c"># set GPU_HOST</span></pre>
+        </div>
+        <div>
+          <p class="step">Every day</p>
+<pre><span class="c"># only if the GPU box stays on loopback</span>
+ssh -N -L 8602:localhost:8602 \
+       -L 8603:localhost:8603 gpu-host
+
+<span class="k">make</span> dev</pre>
+        </div>
+        <p class="who">Starts the containers, migrates, seeds <span class="inline">dev@agents.dev / devdev</span>,
+        then runs <span class="inline">api</span> and <span class="inline">web</span> with reload. Ctrl-C stops
+        the two processes and leaves the containers up, so the next run takes seconds.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================================= variants ================================ -->
+  <section>
+    <h2 class="section">Running less than everything</h2>
+    <div class="tbl">
+      <table>
+        <thead>
+          <tr><th>Command</th><th>Starts</th><th>Reach for it when</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>make dev</code></td>
+            <td>containers + api + web</td>
+            <td>the normal case</td>
+          </tr>
+          <tr>
+            <td><code>make dev S=deps</code></td>
+            <td>containers only, migrated and seeded</td>
+            <td>you want to launch <code>api</code> from your IDE — point it at <code>.venv/bin/python</code>, working dir <code>apps/</code></td>
+          </tr>
+          <tr>
+            <td><code>make dev S=api</code></td>
+            <td>just api</td>
+            <td>two terminals, or web is already running</td>
+          </tr>
+          <tr>
+            <td><code>make dev S=web</code></td>
+            <td>just web</td>
+            <td>frontend-only work</td>
+          </tr>
+          <tr>
+            <td><code>INGEST=1 make dev</code></td>
+            <td>the above, plus the <code>worker</code> container</td>
+            <td>you're touching ingest — it's a big image, so it stays opt-in</td>
+          </tr>
+          <tr>
+            <td><code>make dev-down</code> / <code>dev-reset</code></td>
+            <td>stops containers / stops and wipes the local DB</td>
+            <td>done for the day / the schema drifted</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- =================================== ports ================================= -->
+  <section>
+    <h2 class="section">Ports</h2>
+    <div class="tbl">
+      <table>
+        <thead>
+          <tr><th>Port</th><th>Lives on</th><th>Service</th><th>Who dials it</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="num">8602</td><td><span class="chip chip-gpu">GPU server</span></td><td>llm-gateway → vllm</td><td><code>api</code>, via <code>LLM_BASE_URL</code></td></tr>
+          <tr><td class="num">8603</td><td><span class="chip chip-gpu">GPU server</span></td><td>infer — embed, rerank, ASR</td><td><code>api</code>, via <code>INFER_BASE_URL</code></td></tr>
+          <tr><td class="num">3000</td><td><span class="chip chip-loc">laptop</span></td><td>web (Next.js, host)</td><td>your browser</td></tr>
+          <tr><td class="num">8000</td><td><span class="chip chip-loc">laptop</span></td><td>api (FastAPI, host)</td><td><code>web</code>, via <code>API_INTERNAL_URL</code></td></tr>
+          <tr><td class="num">5433</td><td><span class="chip chip-loc">laptop</span></td><td>postgres + pgvector (Docker)</td><td><code>api</code>, <code>worker</code></td></tr>
+          <tr><td class="num">6380</td><td><span class="chip chip-loc">laptop</span></td><td>redis (Docker)</td><td><code>api</code> enqueues, <code>worker</code> consumes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="callout">
+    <p class="step">Don't reach for this one</p>
+    <p><span class="inline">make up</span> runs the <em>whole</em> stack — Postgres, Redis, vllm, infer, api,
+    worker, web — in Docker on a single GPU host. That is the deploy path, and it needs CUDA locally, so it
+    cannot work on a Mac at all. The <span class="inline">LLM_MODE</span>, compose-profile and nginx-gateway
+    machinery belongs to it. A developer never touches any of that.</p>
+  </div>
+
+  <footer>
+    Config is two files and nothing else: <code>docker/.env</code> on the GPU server,
+    <code>docker/.env.dev</code> on your laptop. Both start as <code>.example</code> copies written by
+    <code>make setup</code> and <code>make dev-setup</code>.
+  </footer>
+
+</div>

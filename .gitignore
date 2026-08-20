@@ -1,10 +1,12 @@
-# Secrets — docker/.env is generated from .env.example by `make setup`
+# Secrets — generated from the .example files by `make setup` / `make dev-setup`
 docker/.env
+docker/.env.dev
 *.pem
 *.key
 
 # Runtime data (Postgres/Redis/storage) — DATA_ROOT default is ./data under docker/
 docker/data/
+docker/devdata/
 
 # Generated sample documents (recreate with: make samples)
 samples/*

@@ -55,6 +55,12 @@ Korean-first throughout: prompts, UI, sentence segmentation, OCR, and models.
 
 ## Requirements
 
+**Developing?** You don't need any of this locally — see
+[Development](#development). One shared GPU server serves the model; your
+machine runs Docker for Postgres/Redis and nothing else.
+
+To run the full stack on one machine:
+
 - Docker with the NVIDIA container runtime
 - **1 GPU with ≥40GB free** for the default 32B AWQ model (two GPUs unlock
   `tp2`/`dp2` modes). Smaller models work on less — see `MODEL_ID`.
@@ -123,32 +129,91 @@ Guided JSON remains the fallback for a model with no usable tool-call parser.
 
 ## Development
 
+Two machines, and each runs only what it has to:
+
+```
+  GPU server                        your laptop
+  ──────────                        ───────────
+  vllm    (LLM)                     postgres  ┐ docker
+  infer   (embed/rerank/ASR)        redis     ┘
+     ▲                              api       ┐ host, hot reload
+     └──── LLM_BASE_URL ────────────  web     ┘
+           INFER_BASE_URL
+```
+
+Nothing local needs a GPU, so this works on a Mac. `api` and `web` are the two
+things you edit, so they run on the host where the reloader and your debugger
+can reach them.
+
+[**docs/dev-topology.html**](docs/dev-topology.html) draws all of this — which
+service sits on which machine, the two env vars that cross between them, and
+every port. Open it in a browser if the split isn't obvious from the sketch above.
+
+### On the GPU server, once
+
+```bash
+make setup                    # writes docker/.env with generated secrets
+$EDITOR docker/.env           # set VLLM_A_GPUS, and BIND_ADDR=0.0.0.0 if devs connect directly
+make build && make serve-gpu  # vllm + infer only — no Postgres, no web, no worker
+```
+
+### On each developer machine
+
+```bash
+make dev-setup                # writes docker/.env.dev
+$EDITOR docker/.env.dev       # set GPU_HOST — usually the only line you change
+make dev
+```
+
+`make dev` starts Postgres and Redis in Docker, applies migrations, seeds the
+admin account, and runs `api` and `web` with reload. It prints the URLs and the
+login. Ctrl-C stops the two host processes and leaves the containers up, so the
+second run takes seconds.
+
+If the GPU box keeps its ports on loopback (the default — neither `vllm` nor
+`infer` authenticates), reach it with a tunnel and leave `GPU_HOST=localhost`:
+
+```bash
+ssh -N -L 8602:localhost:8602 -L 8603:localhost:8603 <gpu-host>
+```
+
+| | |
+|---|---|
+| `make dev` | everything (deps + migrate + seed + api + web) |
+| `make dev S=deps` | only Postgres/Redis + migrate + seed — then run `api` from your IDE against `.venv/bin/python`, working dir `apps/` |
+| `make dev S=api` / `S=web` | one process, for two terminals |
+| `INGEST=1 make dev` | also start the `worker` container (LibreOffice/OCR/ffmpeg — big image, only needed to debug ingest) |
+| `make dev-down` | stop the dev containers |
+| `make dev-reset` | stop them and delete the local database |
+| `make dev-psql`, `make dev-logs S=worker` | poke at the deps |
+
+Config is one file, `docker/.env.dev`. The `LLM_MODE` / profile / nginx-gateway
+machinery in `docker/compose.yml` is deployment concern only — a developer never
+touches it.
+
+### Checking the work
+
 ```bash
 make samples        # generate Korean test documents
 make ingest FILE=samples/2026_공급계약서.pdf
 make test           # unit tests
 make citation-check DOC=<uuid>   # render stored geometry onto pages as PNGs
-make logs S=worker
-make psql
 ```
 
 `make citation-check` is the important one: it draws every stored bounding box
 onto the rendered page so you can *see* whether highlights land on the right
 text. Numbers can be self-consistent and still point at the wrong line.
 
-### Fast local dev (no Docker)
+Two host-side helpers exist for the GPU server, when Docker is in the way:
+`scripts/dev_infer.sh` (the sidecar under `uvicorn --reload`) and
+`scripts/dev_vllm.sh [GPU] [MODEL_ID]` (just `vllm serve`, no gateway, no DB —
+for smoke-testing prompts or tool calling).
 
-For iterating on one piece without standing up the whole stack:
+### Full stack on one machine
 
-```bash
-pnpm install && pnpm dev        # apps/web via Turborepo (http://localhost:3000)
-scripts/dev_api.sh              # apps/api via uv+uvicorn --reload (needs Postgres/Redis/infer reachable)
-scripts/dev_infer.sh            # apps/infer via uv+uvicorn --reload (needs a CUDA torch on the host)
-scripts/dev_vllm.sh [GPU] [MODEL_ID]   # just the LLM via `vllm serve`, no gateway/DB at all
-```
-
-These are additive, not a replacement for `make up` — that's still the
-full/production-like path (real Postgres, real GPU serving, migrations).
+`make up` runs everything — Postgres, Redis, vllm, infer, api, worker, web — in
+Docker on a single GPU host. That's the production-like path and what a deploy
+uses; it is not the way to iterate on code.
 
 ## Layout
 
@@ -158,8 +223,8 @@ apps/
   infer/  GPU sidecar: embeddings, reranking, ASR
   web/    Next.js UI
 docker/   compose, Dockerfiles, .env.example
-scripts/  setup, sample generation, and no-Docker dev scripts
-docs/     STATUS.md — what works, what remains
+scripts/  dev.sh (local development), setup, sample generation
+docs/     STATUS.md — what works, what remains; dev-topology.html — the two-machine dev split
 ```
 
 `apps/*` is a pnpm workspace (`pnpm-workspace.yaml`, root `package.json`,
