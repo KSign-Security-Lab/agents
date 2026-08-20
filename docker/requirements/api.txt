@@ -1,0 +1,36 @@
+# --- web framework -------------------------------------------------------
+fastapi==0.121.2
+uvicorn[standard]==0.40.0
+python-multipart==0.0.20
+sse-starlette==3.0.2
+
+# --- config / validation -------------------------------------------------
+pydantic[email]==2.12.4
+pydantic-settings>=2.14.0,<3   # docling-core requires >=2.14
+
+# --- database ------------------------------------------------------------
+# psycopg3 is used for BOTH SQLAlchemy and LangGraph's Postgres checkpointer,
+# so the image carries a single Postgres driver.
+sqlalchemy[asyncio]==2.0.52
+psycopg[binary,pool]==3.2.13
+alembic==1.17.1
+pgvector==0.5.0
+
+# --- queue / cache / realtime -------------------------------------------
+redis[hiredis]==5.3.1   # arq pins redis<6
+arq==0.28.0
+
+# --- auth ----------------------------------------------------------------
+pyjwt==2.11.0
+bcrypt==4.2.1
+
+# --- agent ---------------------------------------------------------------
+langgraph==1.2.11
+langgraph-checkpoint-postgres==3.1.2
+langchain-core>=1.4.7,<2   # resolved by langgraph
+openai==2.54.0
+
+# --- misc ----------------------------------------------------------------
+httpx==0.28.1
+tenacity==9.1.2
+python-json-logger==4.0.0

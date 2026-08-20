@@ -1,0 +1,16 @@
+-r api.txt
+
+# --- document parsing ----------------------------------------------------
+# Docling supplies per-element page+bbox provenance and table cell structure,
+# which is what makes precise citation highlighting possible.
+docling==2.120.3
+pymupdf==1.28.2
+pillow==11.3.0
+
+# --- OCR (Korean) --------------------------------------------------------
+easyocr==1.7.2
+rapidocr-onnxruntime==1.4.4
+
+
+# --- media ---------------------------------------------------------------
+av==15.1.0

@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+
+html, body { height: 100%; }
+body {
+  @apply bg-white text-ink antialiased;
+  word-break: keep-all;      /* Korean should wrap between words, not mid-word */
+  line-break: strict;
+}
+
+/* Answer prose: tight enough to scan, loose enough to read Korean comfortably. */
+.answer { @apply text-[15px] leading-[1.75]; }
+.answer p { @apply my-2; }
+.answer ul, .answer ol { @apply my-2 pl-5 space-y-1; }
+.answer ul { @apply list-disc; }
+.answer ol { @apply list-decimal; }
+.answer strong { @apply font-semibold text-ink; }
+.answer h1, .answer h2, .answer h3 { @apply font-semibold mt-4 mb-2; }
+.answer code { @apply bg-gray-100 px-1 py-0.5 rounded text-[13px]; }
+.answer table { @apply my-3 w-full text-[13px] border-collapse; }
+.answer th, .answer td { @apply border border-line px-2 py-1 text-left; }
+
+.scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes pulse-soft { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+.animate-pulse-soft { animation: pulse-soft 1.4s ease-in-out infinite; }

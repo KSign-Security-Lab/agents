@@ -1,0 +1,16 @@
+fastapi==0.121.2
+uvicorn[standard]==0.40.0
+pydantic==2.12.4
+pydantic-settings>=2.14.0,<3   # docling-core requires >=2.14
+python-multipart==0.0.20
+
+# bge-m3 dense + sparse lexical weights in one forward pass, and the
+# bge-reranker-v2-m3 cross-encoder.
+# --no-deps is NOT used, but torch/transformers are already satisfied by the
+# vllm base image, so pip leaves the working CUDA build in place.
+FlagEmbedding==1.4.0
+
+# Korean ASR with segment timestamps.
+faster-whisper==1.2.1
+
+httpx==0.28.1

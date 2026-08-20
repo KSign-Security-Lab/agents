@@ -1,0 +1,25 @@
+# Secrets — docker/.env is generated from .env.example by `make setup`
+docker/.env
+*.pem
+*.key
+
+# Generated sample documents (recreate with: make samples)
+samples/*
+!samples/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Local runtime output
+out/
+logs/
