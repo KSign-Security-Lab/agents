@@ -80,40 +80,28 @@ class OutlineItem(BaseModel):
     bbox: list[float] | None = None
 
 
-# ---------------------------------------------------------------- folders ----
-class FolderCreate(BaseModel):
+# --------------------------------------------------------------- channels ----
+class ChannelCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = None
+    # Already-ingested documents to attach at creation time.
     document_ids: list[UUID] = []
 
 
-class FolderOut(BaseModel):
+class ChannelUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+
+
+class ChannelOut(BaseModel):
     id: UUID
     name: str
     description: str | None = None
-    document_count: int = 0
-    session_count: int = 0
-    created_by: UserOut | None = None
-    created_at: datetime
-
-
-# --------------------------------------------------------------- sessions ----
-class SessionCreate(BaseModel):
-    title: str | None = None
-    folder_id: UUID | None = None
-    # Ad-hoc selection, on top of (or instead of) a folder.
-    document_ids: list[UUID] = []
-
-
-class SessionOut(BaseModel):
-    id: UUID
-    title: str
-    folder_id: UUID | None = None
-    folder_name: str | None = None
     created_by: UserOut | None = None
     active_leaf_id: UUID | None = None
     message_count: int = 0
     document_count: int = 0
+    archived: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -143,7 +131,7 @@ class CitationOut(BaseModel):
 
 class MessageOut(BaseModel):
     id: UUID
-    session_id: UUID
+    channel_id: UUID
     parent_id: UUID | None = None
     role: str
     author: UserOut | None = None
@@ -159,7 +147,7 @@ class MessageOut(BaseModel):
 class SendMessage(BaseModel):
     content: str = Field(min_length=1)
     # Reply under a specific message to fork deliberately; defaults to the
-    # session's active leaf.
+    # channel's active leaf.
     parent_id: UUID | None = None
 
 

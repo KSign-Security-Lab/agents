@@ -23,7 +23,7 @@ export default async function TopicsPage() {
   ]);
 
   return (
-    <Shell user={user} active="topics">
+    <Shell user={user} activeTop="topics">
       <TopicManager
         topics={topics}
         candidates={candidates}

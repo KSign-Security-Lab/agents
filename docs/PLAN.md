@@ -85,10 +85,15 @@ than re-running a slow OCR or ASR pass.
 ## Retrieval and the agent
 
 ```
-route → plan → Send(researcher × sub-question) → merge → compose → verify
+plan → researcher × sub-question (asyncio.gather) → merge → tables → compose → verify
 ```
 
-`researcher` is `retrieve → rerank → grade → (retry | escalate) → findings`.
+Hand-rolled asyncio, not a LangGraph graph — `langgraph` is a dependency but
+`AsyncPostgresSaver` isn't wired in; see Roadmap. `researcher` is
+`retrieve → rerank → grade → (retry | escalate) → findings`. `tables` only
+runs when the planner flagged `needs_tables` and a merged source is a table:
+it offers `query_table`/`calc` to the model via a real multi-round
+`tool_choice="auto"` loop and folds the result back in as a citable source.
 
 - Hybrid dense + sparse, fused by Reciprocal Rank Fusion — no score calibration
   needed between two differently-scaled similarity measures
@@ -115,22 +120,24 @@ route → plan → Send(researcher × sub-question) → merge → compose → ve
 
 ## Roadmap
 
+**Done** — eval harness (`make eval`, a Korean gold set derived from
+`scripts/make_samples.py`), the verify/reflect node, table tools
+(`query_table`/`calc` behind a real `tool_choice="auto"` loop), and an admin
+UI for user management. See STATUS.md for what's implemented + unit-tested
+versus actually exercised against a live model.
+
 **Next**
-1. Eval harness — a Korean gold set with expected citations. Citation accuracy is
-   the metric that matters and there is no automated measure of it yet.
-2. Verify/reflect node — revise or hedge factual sentences that carry no citation.
-3. Verify the two untested ingest paths on real files: HWP and a recording.
+1. Verify the two untested ingest paths on real files: HWP and a recording.
+2. Run `make eval` against a live stack and look at the actual pass/fail —
+   it's never been exercised end to end, only checked for correctness offline.
 
 **Then**
-4. Table tools — `query_table` returning cell values with their boxes, and an
-   AST-validated `calc`, so a numeric answer can cite the exact cell.
-5. Admin UI for user management.
-6. Web search as a registered tool once a provider is chosen (adapter is stubbed).
+3. Web search as a registered tool once a provider is chosen (adapter is stubbed).
 
 **Later**
-7. Load testing on concurrent sessions; the per-session run lock and queue are
+4. Load testing on concurrent sessions; the per-session run lock and queue are
    implemented but untested under contention.
-8. LangGraph `AsyncPostgresSaver` for resumable agent state, if interrupted runs
+5. LangGraph `AsyncPostgresSaver` for resumable agent state, if interrupted runs
    become a real problem.
-9. Object storage behind the existing `Storage` protocol, if single-node
+6. Object storage behind the existing `Storage` protocol, if single-node
    filesystem storage stops being enough.

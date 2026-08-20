@@ -84,9 +84,6 @@ llm-mode: ## Switch GPU topology without touching app code: make llm-mode MODE=d
 pull-models: ## Pre-download LLM + embed/rerank/ASR weights to /data
 	bash scripts/pull_models.sh
 
-probe-tools: ## Detect whether the served model supports native tool calls
-	$(DC) exec -T api python -m api.scripts.probe_tools
-
 ## ------------------------------------------------------------- database
 migrate: ## Apply migrations
 	$(DC) exec -T api alembic -c api/alembic.ini upgrade head

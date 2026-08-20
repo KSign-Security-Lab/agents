@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     served_model_name: str = "main"
     max_model_len: int = 32768
     # Empty => the model has no vLLM tool-call parser, so tool calls are done
-    # with guided JSON decoding instead. Set by scripts/probe_tools.py.
+    # with guided JSON decoding instead. Set via docker/.env's TOOL_CALL_PARSER.
     tool_call_parser: str = ""
 
     # ---- inference sidecar ----------------------------------------------

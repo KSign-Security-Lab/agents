@@ -17,6 +17,13 @@ documents and real models — not mocked.
   both the dense `vector` and sparse `sparsevec` columns
 - `LLM_MODE=single|tp2|dp2` all render valid nginx config; `single`/`tp2` start
   even while a replica is still loading (request-time DNS resolution)
+- Repo restructured into an `apps/` pnpm+uv monorepo (`apps/api`, `apps/web`,
+  `apps/infer`); `docker compose build` confirmed for `api`/`worker`/`web` —
+  each built image's container actually boots (`import api.app.main` inside
+  the container, an HTTP 200 from the built `web` image) rather than just
+  parsing. `infer`'s build was not re-run (its base image is a 26GB pull not
+  worth repeating for the same COPY mechanism already proven twice), but its
+  non-GPU modules were import-checked directly from the new path.
 
 ### Serving
 - vLLM serving EXAONE-4.0-32B-AWQ, 32k context
@@ -66,9 +73,38 @@ Ran end to end for PDF, docx, odt, plain text, image, and scanned PDF:
   transcript seek, branch switcher, topic management
 
 ### Tests
-54 unit tests passing — citation marker streaming at every chunk size,
+72 unit tests passing — citation marker streaming at every chunk size,
 adversarial split points, geometry mapping, line merging, truncated-JSON repair,
-Korean sentence segmentation.
+Korean sentence segmentation, verify-node fix application, table cell
+selection and `calc`'s restricted expression evaluator.
+
+---
+
+## Implemented, not yet exercised against a live stack
+
+Code-complete and unit tested where the logic is pure, but none of these have
+cleared the bar above — a live model, a live Postgres, real data — the same
+bar every "Verified working" entry already met.
+
+- **Verify/reflect node** — wired into the graph (`app/agent/nodes/verify.py`),
+  reusing compose's live citation parser so a fix that cites an
+  already-offered source keeps its pill number. 5 unit tests cover
+  hedge/cite/keep/unknown-source-id/non-matching-sentence. **Never run
+  against a real LLM** — no live agent turn has triggered it yet.
+- **Table/numeric tools** — `query_table`/`calc` (pure, unit tested) plus
+  `complete_with_tools`, a new multi-round `tool_choice="auto"` loop in
+  `llm_client.py`. **The loop itself is unverified against this stack's
+  Hermes parser** — only the forced-single-function path (`complete_json`)
+  has ever actually run against the served model; `tool_choice="auto"` with
+  multiple tools is a genuinely different request shape.
+- **Eval harness** (`make eval`) — `api/scripts/run_eval.py` plus a 10-case
+  gold set derived and cross-checked against `scripts/make_samples.py`'s own
+  generated contract text. **Never actually run** — needs a live stack with
+  the sample documents ingested.
+- **Admin UI** — `/admin` page, backend `AdminUserOut`. Build-verified: real
+  `docker compose build` for `api`/`web` succeeded, both booted, `next
+  build`/`tsc --noEmit` passed. **Not functionally verified** — no one has
+  created, edited, or deactivated a user through the running UI yet.
 
 ---
 
@@ -115,13 +151,9 @@ Recorded because each was invisible until a specific test forced it out.
 |---|---|
 | **Audio/video end to end** | Code paths written (ffmpeg → Whisper → timestamped chunks → seek-on-click) but **never run against a real recording**. Needs a Korean audio file to verify. |
 | **HWP/HWPX** | H2Orestart is installed and registered in the worker image, and the conversion path is wired. **Not tested on a real .hwp file** — none was available. Test with your own documents early; complex Korean layouts may shift. |
-| **Verify/reflect node** | The prompt and schema exist (`VERIFY_SYSTEM`, `uncited_sentences`) but the node is not wired into the graph. Uncited factual sentences are not yet revised or hedged. |
 | **Whole-corpus escalation** | Implemented in `researcher_node` and the `out_of_scope` flag is plumbed through to the UI, but not yet exercised by a test that forces it. |
-| **Table/numeric tools** | `table_json` with cell boxes is stored; the `query_table` and `calc` tools are not built. |
 | **Web search** | Deliberately deferred. Tool interface and provider adapter are stubbed behind `WEB_SEARCH_ENABLED=false`. |
 | **LangGraph checkpointer** | The turn driver is hand-rolled asyncio for streaming clarity. `langgraph` is a dependency but `AsyncPostgresSaver` is not wired; user-facing branching does not depend on it. |
-| **Admin UI** | API endpoints exist (`/admin/users`); no page. |
-| **Eval harness** | `make eval` is referenced but `api/scripts/run_eval.py` is not written. A Korean gold set with expected citations is the highest-value next test. |
 | **Concurrency** | Single-user tested. The per-session run lock and queue are implemented but not load-tested. |
 
 ---
@@ -150,6 +182,11 @@ Recorded because each was invisible until a specific test forced it out.
    **look at the PNGs**. If highlights are off, nothing downstream matters.
 3. Ingest a handful of your own real documents — especially **.hwp files and a
    recording**, the two untested paths.
-4. Write the eval gold set. Citation accuracy is the metric that matters, and
-   there is currently no automated measure of it.
-5. Wire the verify node, then the table tools.
+4. `make eval` — the gold set and harness already exist; this is the first
+   time it will actually run against a live model.
+5. Ask a question that plausibly needs a hedge/citation fix, and a question
+   over a table (e.g. the payment-schedule table in the sample supply
+   contract), and watch the `verify`/`tables` step events and the `revision`
+   SSE event fire. Neither has run against a real LLM yet — `tool_choice=
+   "auto"` with multiple tools in particular is a new request shape for this
+   stack's Hermes parser.

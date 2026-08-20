@@ -5,17 +5,17 @@ import clsx from "clsx";
 import AnswerText from "./AnswerText";
 import SourcePanel from "./SourcePanel";
 import StepsPanel from "./StepsPanel";
-import { readTurn, subscribeSession } from "@/lib/stream";
+import { readTurn, subscribeChannel } from "@/lib/stream";
 import type { Branch, Citation, Doc, Message, Step, User } from "@/lib/types";
 
 type Props = {
-  sessionId: string;
+  channelId: string;
   initialMessages: Message[];
   documents: Doc[];
   me: User;
 };
 
-export default function Chat({ sessionId, initialMessages, documents, me }: Props) {
+export default function Chat({ channelId, initialMessages, documents, me }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,13 +38,13 @@ export default function Chat({ sessionId, initialMessages, documents, me }: Prop
   }, []);
 
   const refresh = useCallback(async () => {
-    const res = await fetch(`/api/proxy/sessions/${sessionId}/messages`);
+    const res = await fetch(`/api/proxy/channels/${channelId}/messages`);
     if (res.ok) setMessages(await res.json());
-  }, [sessionId]);
+  }, [channelId]);
 
   // ---- watch the shared channel -----------------------------------------
   useEffect(() => {
-    return subscribeSession(sessionId, {
+    return subscribeChannel(channelId, {
       presence: (d) => setViewers(d.viewers ?? []),
       message: (d) => {
         // Someone else posted. Our own message is already on screen.
@@ -58,7 +58,7 @@ export default function Chat({ sessionId, initialMessages, documents, me }: Prop
         if (streamingId.current !== d.message_id) void refresh();
       },
     });
-  }, [sessionId, me.id, refresh]);
+  }, [channelId, me.id, refresh]);
 
   // ---- send -------------------------------------------------------------
   const send = useCallback(async () => {
@@ -72,7 +72,7 @@ export default function Chat({ sessionId, initialMessages, documents, me }: Prop
 
     const tempUser: Message = {
       id: `temp-user-${Date.now()}`,
-      session_id: sessionId,
+      channel_id: channelId,
       parent_id: null,
       role: "user",
       author: me,
@@ -96,7 +96,7 @@ export default function Chat({ sessionId, initialMessages, documents, me }: Prop
     requestAnimationFrame(scrollToBottom);
 
     try {
-      const res = await fetch(`/api/proxy/sessions/${sessionId}/messages`, {
+      const res = await fetch(`/api/proxy/channels/${channelId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ content }),
@@ -136,7 +136,7 @@ export default function Chat({ sessionId, initialMessages, documents, me }: Prop
       // Reconcile optimistic ids and sibling counts with the server.
       void refresh();
     }
-  }, [draft, busy, sessionId, me, refresh, scrollToBottom]);
+  }, [draft, busy, channelId, me, refresh, scrollToBottom]);
 
   // ---- branching ---------------------------------------------------------
   const revert = useCallback(
@@ -144,33 +144,33 @@ export default function Chat({ sessionId, initialMessages, documents, me }: Prop
       if (!confirm("이 지점으로 되돌립니다. 이후 대화는 삭제되지 않고 다른 갈래로 보존됩니다.")) {
         return;
       }
-      const res = await fetch(`/api/proxy/sessions/${sessionId}/revert`, {
+      const res = await fetch(`/api/proxy/channels/${channelId}/revert`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ message_id: messageId }),
       });
       if (res.ok) setMessages(await res.json());
     },
-    [sessionId],
+    [channelId],
   );
 
   const loadBranches = useCallback(
     async (messageId: string) => {
       if (branches[messageId]) return;
       const res = await fetch(
-        `/api/proxy/sessions/${sessionId}/messages/${messageId}/branches`,
+        `/api/proxy/channels/${channelId}/messages/${messageId}/branches`,
       );
       if (res.ok) {
         const data = await res.json();
         setBranches((prev) => ({ ...prev, [messageId]: data }));
       }
     },
-    [sessionId, branches],
+    [channelId, branches],
   );
 
   const switchTo = useCallback(
     async (messageId: string) => {
-      const res = await fetch(`/api/proxy/sessions/${sessionId}/switch/${messageId}`, {
+      const res = await fetch(`/api/proxy/channels/${channelId}/switch/${messageId}`, {
         method: "POST",
       });
       if (res.ok) {
@@ -178,7 +178,7 @@ export default function Chat({ sessionId, initialMessages, documents, me }: Prop
         setBranches({});
       }
     },
-    [sessionId],
+    [channelId],
   );
 
   const openCitation = useCallback((c: Citation) => {
@@ -253,7 +253,7 @@ export default function Chat({ sessionId, initialMessages, documents, me }: Prop
             </button>
           </div>
           <p className="mx-auto mt-1.5 max-w-3xl text-[11px] text-ink-muted">
-            이 세션은 팀 전체에 공개되며, 누가 무엇을 물었는지 함께 표시됩니다.
+            이 채널은 팀 전체에 공개되며, 누가 무엇을 물었는지 함께 표시됩니다.
           </p>
         </div>
       </div>

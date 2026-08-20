@@ -56,7 +56,7 @@ export type Citation = {
 
 export type Message = {
   id: string;
-  session_id: string;
+  channel_id: string;
   parent_id: string | null;
   role: "user" | "assistant" | "system";
   author: User | null;
@@ -68,27 +68,17 @@ export type Message = {
   sibling_count: number;
 };
 
-export type ChatSession = {
+export type Channel = {
   id: string;
-  title: string;
-  folder_id: string | null;
-  folder_name: string | null;
+  name: string;
+  description: string | null;
   created_by: User | null;
   active_leaf_id: string | null;
   message_count: number;
   document_count: number;
+  archived: boolean;
   created_at: string;
   updated_at: string;
-};
-
-export type Folder = {
-  id: string;
-  name: string;
-  description: string | null;
-  document_count: number;
-  session_count: number;
-  created_by: User | null;
-  created_at: string;
 };
 
 export type Step = { ord: number; node: string; label: string; output?: unknown };

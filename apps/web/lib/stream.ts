@@ -79,14 +79,14 @@ export async function readTurn(res: Response, h: TurnHandlers): Promise<void> {
 }
 
 /**
- * Subscribes to a session's event channel so other people's messages and the
+ * Subscribes to a channel's event stream so other people's messages and the
  * assistant tokens they trigger appear here too.
  */
-export function subscribeSession(
-  sessionId: string,
+export function subscribeChannel(
+  channelId: string,
   handlers: Record<string, (data: any) => void>,
 ): () => void {
-  const es = new EventSource(`/api/proxy/sessions/${sessionId}/events`);
+  const es = new EventSource(`/api/proxy/channels/${channelId}/events`);
   const listeners: [string, EventListener][] = [];
   for (const [event, fn] of Object.entries(handlers)) {
     const listener: EventListener = (e) => {

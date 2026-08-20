@@ -105,11 +105,6 @@ class MessageStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 
-class ScopeMode(str, enum.Enum):
-    add = "add"
-    remove = "remove"
-
-
 # ---------------------------------------------------------------- users ----
 class User(Base, TimestampMixin):
     __tablename__ = "users"
@@ -334,40 +329,18 @@ class DocumentTopic(Base):
     source: Mapped[str] = mapped_column(String(16), default="agent", nullable=False)
 
 
-# ------------------------------------------------- folders and sessions ----
-class Folder(Base, TimestampMixin):
-    """Both a reusable document set and a project view listing its sessions."""
+# ------------------------------------------------------------- channels ----
+class Channel(Base, TimestampMixin):
+    """A named, shared space: one continuous message feed plus the document
+    set the agent answers from. Merges what used to be Folder (document set +
+    project view) and Session (the conversation) into one entity — a channel
+    is no longer layered, it just is the conversation."""
 
-    __tablename__ = "folders"
+    __tablename__ = "channels"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-
-    creator: Mapped[User | None] = relationship(lazy="joined")
-
-
-class FolderDocument(Base):
-    __tablename__ = "folder_documents"
-
-    folder_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("folders.id", ondelete="CASCADE"), primary_key=True
-    )
-    document_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
-    )
-    added_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-
-
-class Session(Base, TimestampMixin):
-    __tablename__ = "sessions"
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    title: Mapped[str] = mapped_column(String(300), default="새 대화", nullable=False)
-    folder_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("folders.id", ondelete="SET NULL"), index=True
-    )
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     # Marks the live path through the message tree. Reverting a checkpoint just
     # moves this pointer; nothing is deleted.
@@ -378,20 +351,20 @@ class Session(Base, TimestampMixin):
 
     creator: Mapped[User | None] = relationship(lazy="joined", foreign_keys=[created_by])
 
+    __table_args__ = (UniqueConstraint("name", name="uq_channels_name"),)
 
-class SessionDocument(Base):
-    """Per-session overrides on top of the folder's document set."""
 
-    __tablename__ = "session_documents"
+class ChannelDocument(Base):
+    """A channel's document set — flat and absolute, no add/remove delta
+    layer, since there's nothing above a channel to layer on top of."""
 
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True
+    __tablename__ = "channel_documents"
+
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("channels.id", ondelete="CASCADE"), primary_key=True
     )
     document_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
-    )
-    mode: Mapped[ScopeMode] = mapped_column(
-        Enum(ScopeMode, name="scope_mode"), default=ScopeMode.add, nullable=False
     )
     added_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
@@ -402,21 +375,23 @@ class Message(Base):
 
     ``parent_id`` makes branching natural: editing or reverting creates a
     sibling rather than mutating history, so every earlier path stays readable.
-    ``author_id`` is what makes the Slack-like shared session legible — you can
-    always see who asked what.
+    ``author_id`` is what makes the shared channel legible — you can always
+    see who asked what.
     """
 
     __tablename__ = "messages"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True
     )
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("messages.id", ondelete="CASCADE"), index=True
     )
-    # Stable id of the branch this message belongs to, used as the LangGraph
-    # thread key so each branch has consistent agent state.
+    # Stable id labeling which branch this message belongs to. Not currently
+    # read by the agent turn driver (hand-rolled asyncio, not LangGraph) — it
+    # would become a checkpointer thread key if AsyncPostgresSaver is ever
+    # wired in (see docs/STATUS.md's "Not yet done").
     branch_root_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
 
     role: Mapped[MessageRole] = mapped_column(Enum(MessageRole, name="message_role"), nullable=False)
@@ -436,7 +411,7 @@ class Message(Base):
         back_populates="message", cascade="all, delete-orphan", order_by="Citation.idx"
     )
 
-    __table_args__ = (Index("ix_messages_session_created", "session_id", "created_at"),)
+    __table_args__ = (Index("ix_messages_channel_created", "channel_id", "created_at"),)
 
 
 class Citation(Base):
@@ -469,7 +444,7 @@ class Citation(Base):
     snippet: Mapped[str] = mapped_column(Text, default="", nullable=False)
     heading_path: Mapped[str | None] = mapped_column(Text)
     score: Mapped[float | None] = mapped_column(Float)
-    # True when the agent had to look outside the session's selected documents.
+    # True when the agent had to look outside the channel's selected documents.
     out_of_scope: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     message: Mapped[Message] = relationship(back_populates="citations")

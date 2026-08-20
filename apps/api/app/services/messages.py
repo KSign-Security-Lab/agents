@@ -1,14 +1,15 @@
 """The message tree.
 
-Sessions are shared and revertible, so history is a tree rather than a list:
+Channels are shared and revertible, so history is a tree rather than a list:
 
-* Every message has a ``parent_id``. Sending normally appends to the session's
+* Every message has a ``parent_id``. Sending normally appends to the channel's
   ``active_leaf_id``; reverting just moves that pointer, and the next message
   becomes a *sibling* of whatever came after it before.
 * Nothing is ever deleted. An earlier path stays readable, which matters when
   the person who wrote it is not the person who reverted.
-* ``branch_root_id`` labels the branch, and is what keys the agent's own state
-  so two branches of the same session never see each other's context.
+* ``branch_root_id`` labels the branch. It isn't read anywhere yet — it's the
+  key a future LangGraph checkpointer would use to give two branches of the
+  same channel independent agent state.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.app.db.models import Citation, Message, MessageRole, Session as ChatSession
+from api.app.db.models import Channel, Citation, Message, MessageRole
 
 
 async def path_to(db: AsyncSession, message_id: UUID) -> list[Message]:
@@ -52,20 +53,20 @@ def _ancestors_cte(message_id: UUID):
     return base.union_all(parent)
 
 
-async def active_path(db: AsyncSession, session: ChatSession) -> list[Message]:
-    """Messages on the session's live branch."""
-    if session.active_leaf_id is None:
+async def active_path(db: AsyncSession, channel: Channel) -> list[Message]:
+    """Messages on the channel's live branch."""
+    if channel.active_leaf_id is None:
         return []
-    return await path_to(db, session.active_leaf_id)
+    return await path_to(db, channel.active_leaf_id)
 
 
-async def history_for_model(db: AsyncSession, session: ChatSession, *,
+async def history_for_model(db: AsyncSession, channel: Channel, *,
                             limit: int = 12) -> list[dict[str, str]]:
     """Recent turns on the live branch, as chat messages.
 
     Two things happen here that are easy to get wrong:
 
-    * Author names are prefixed on user turns. In a shared session the model
+    * Author names are prefixed on user turns. In a shared channel the model
       otherwise cannot tell that two consecutive questions came from different
       people, and answers as if one person contradicted themselves.
     * Citation tokens are stripped from assistant turns. Stored content holds
@@ -76,7 +77,7 @@ async def history_for_model(db: AsyncSession, session: ChatSession, *,
     """
     from api.app.agent.citations import strip_cite_tokens
 
-    messages = await active_path(db, session)
+    messages = await active_path(db, channel)
     out: list[dict[str, str]] = []
     for m in messages[-limit:]:
         if m.role == MessageRole.assistant:
@@ -92,7 +93,7 @@ async def sibling_info(db: AsyncSession, message: Message) -> tuple[int, int]:
     """``(index, count)`` among messages sharing this parent — the branch switcher."""
     siblings = (await db.execute(
         select(Message.id).where(
-            Message.session_id == message.session_id,
+            Message.channel_id == message.channel_id,
             Message.parent_id == message.parent_id,
             Message.role == message.role,
         ).order_by(Message.created_at)

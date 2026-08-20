@@ -75,36 +75,13 @@ def to_sparse_vector(weights: dict[int, float] | dict[str, float], dim: int):
     return SparseVector({int(k): float(v) for k, v in weights.items()}, dim)
 
 
-async def effective_document_ids(db: AsyncSession, session_id: UUID) -> list[UUID]:
-    """A session's document scope.
-
-    ``folder documents ∪ session additions − session removals`` — so a session
-    can start from a folder and still be narrowed or widened per conversation.
-    """
+async def channel_document_ids(db: AsyncSession, channel_id: UUID) -> list[UUID]:
+    """A channel's document scope — its full ``ChannelDocument`` set, no
+    layering: a channel is no longer a session narrowing a folder, it just is
+    its own flat, absolute document set."""
     rows = await db.execute(
-        text("""
-            WITH folder_docs AS (
-                SELECT fd.document_id
-                FROM sessions s
-                JOIN folder_documents fd ON fd.folder_id = s.folder_id
-                WHERE s.id = :sid
-            ),
-            added AS (
-                SELECT document_id FROM session_documents
-                WHERE session_id = :sid AND mode = 'add'
-            ),
-            removed AS (
-                SELECT document_id FROM session_documents
-                WHERE session_id = :sid AND mode = 'remove'
-            )
-            SELECT document_id FROM (
-                SELECT document_id FROM folder_docs
-                UNION
-                SELECT document_id FROM added
-            ) u
-            WHERE document_id NOT IN (SELECT document_id FROM removed)
-        """),
-        {"sid": str(session_id)},
+        text("SELECT document_id FROM channel_documents WHERE channel_id = :cid"),
+        {"cid": str(channel_id)},
     )
     return [r[0] for r in rows.fetchall()]
 

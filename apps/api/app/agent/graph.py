@@ -2,13 +2,14 @@
 
 Shape:
 
-    route -> plan -> [researcher x N in parallel] -> merge -> compose -> verify
+    plan -> [researcher x N in parallel] -> merge -> tables -> compose -> verify
 
-``researcher`` is a sub-agent: one is spawned per sub-question via LangGraph's
-``Send`` API, and each runs its own retrieve/rerank/grade loop, escalating to a
-whole-corpus search when the session's selected documents come up short. The
-fan-out is what makes multi-hop questions ("compare the payment terms in these
-three contracts") answerable without stuffing everything into one retrieval.
+This is hand-rolled asyncio, not a LangGraph graph: ``researcher`` is a
+sub-agent fanned out one per sub-question via ``asyncio.gather``, and each runs
+its own retrieve/rerank/grade loop, escalating to a whole-corpus search when
+the session's selected documents come up short. The fan-out is what makes
+multi-hop questions ("compare the payment terms in these three contracts")
+answerable without stuffing everything into one retrieval.
 
 Streaming is handled outside the graph: ``run_agent`` yields events so the API
 can push tokens, citations and step traces to every viewer of the session.

@@ -12,11 +12,10 @@ from api.app.config import settings
 from api.app.routers import (
     admin,
     auth,
+    channels,
     documents,
     events,
-    folders,
     search,
-    sessions,
     topics,
 )
 
@@ -53,7 +52,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth.router, documents.router, folders.router, sessions.router,
+for r in (auth.router, documents.router, channels.router,
           topics.router, search.router, events.router, admin.router):
     app.include_router(r)
 

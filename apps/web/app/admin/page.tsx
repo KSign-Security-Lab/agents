@@ -15,7 +15,7 @@ export default async function AdminPage() {
   const users = await api<AdminUser[]>("/admin/users");
 
   return (
-    <Shell user={user} active="admin">
+    <Shell user={user} activeTop="admin">
       <AdminUserManager users={users} currentUserId={user.id} />
     </Shell>
   );

@@ -3,6 +3,9 @@ docker/.env
 *.pem
 *.key
 
+# Runtime data (Postgres/Redis/storage) — DATA_ROOT default is ./data under docker/
+docker/data/
+
 # Generated sample documents (recreate with: make samples)
 samples/*
 !samples/.gitkeep

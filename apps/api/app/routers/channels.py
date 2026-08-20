@@ -1,4 +1,9 @@
-"""Chat sessions: shared, streamed, branchable."""
+"""Channels: shared, streamed, branchable.
+
+A channel is a named, shared space — one continuous message feed plus the
+document set the agent answers from. There's no folder-then-session layering
+above it; a channel just is the conversation.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -18,37 +23,35 @@ from api.app.agent.resolve import resolve_citations
 from api.app.db.models import (
     AgentRun,
     AgentStep,
+    Channel,
+    ChannelDocument,
     Chunk,
     Citation,
     Document,
-    Folder,
-    FolderDocument,
     Message,
     MessageRole,
     MessageStatus,
-    ScopeMode,
-    Session as ChatSession,
-    SessionDocument,
 )
 from api.app.db.session import SessionLocal
 from api.app.deps import CurrentUser, DbSession
 from api.app.schemas import (
     BranchOut,
+    ChannelCreate,
+    ChannelOut,
+    ChannelUpdate,
     CitationOut,
     MessageOut,
     RevertRequest,
     ScopeUpdate,
     SendMessage,
-    SessionCreate,
-    SessionOut,
     UserOut,
 )
-from api.app.services import llm_client, messages as tree, retrieval
+from api.app.services import messages as tree, retrieval
 from api.app.services.locks import run_lock
 from api.app.services.realtime import realtime
 
-log = logging.getLogger("routers.sessions")
-router = APIRouter(prefix="/sessions", tags=["sessions"])
+log = logging.getLogger("routers.channels")
+router = APIRouter(prefix="/channels", tags=["channels"])
 
 
 def _user_out(u) -> UserOut | None:
@@ -56,96 +59,113 @@ def _user_out(u) -> UserOut | None:
 
 
 # ------------------------------------------------------------------ CRUD -----
-@router.post("", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
-async def create_session(body: SessionCreate, db: DbSession, user: CurrentUser) -> SessionOut:
-    if body.folder_id and await db.get(Folder, body.folder_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "폴더를 찾을 수 없습니다")
+@router.post("", response_model=ChannelOut, status_code=status.HTTP_201_CREATED)
+async def create_channel(body: ChannelCreate, db: DbSession, user: CurrentUser) -> ChannelOut:
+    if await db.scalar(select(Channel.id).where(Channel.name == body.name.strip())):
+        raise HTTPException(status.HTTP_409_CONFLICT, "이미 사용 중인 채널 이름입니다")
 
-    session = ChatSession(title=(body.title or "새 대화").strip(),
-                          folder_id=body.folder_id, created_by=user.id)
-    db.add(session)
+    channel = Channel(name=body.name.strip(), description=body.description,
+                      created_by=user.id)
+    db.add(channel)
     await db.flush()
 
     for doc_id in dict.fromkeys(body.document_ids):
         if await db.get(Document, doc_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"문서를 찾을 수 없습니다: {doc_id}")
-        db.add(SessionDocument(session_id=session.id, document_id=doc_id,
-                               mode=ScopeMode.add, added_by=user.id))
+        db.add(ChannelDocument(channel_id=channel.id, document_id=doc_id, added_by=user.id))
     await db.flush()
-    await db.refresh(session, ["creator"])
-    return await _session_out(db, session)
+    await db.refresh(channel, ["creator"])
+    out = await _channel_out(db, channel)
+
+    await realtime.publish_channel_list("channel.created", {
+        "id": str(channel.id), "name": channel.name, "by": user.name,
+    })
+    return out
 
 
-@router.get("", response_model=list[SessionOut])
-async def list_sessions(db: DbSession, user: CurrentUser,
-                        folder_id: UUID | None = None) -> list[SessionOut]:
-    """Every session in the workspace — sessions are shared, not private."""
-    stmt = select(ChatSession).options(selectinload(ChatSession.creator))
-    if folder_id:
-        stmt = stmt.where(ChatSession.folder_id == folder_id)
-    stmt = stmt.where(ChatSession.archived.is_(False)).order_by(ChatSession.updated_at.desc())
-    sessions = (await db.execute(stmt)).scalars().unique().all()
-    return [await _session_out(db, s) for s in sessions]
+@router.get("", response_model=list[ChannelOut])
+async def list_channels(db: DbSession, user: CurrentUser) -> list[ChannelOut]:
+    """Every channel in the workspace — channels are shared, not private."""
+    channels = (await db.execute(
+        select(Channel).options(selectinload(Channel.creator))
+        .where(Channel.archived.is_(False)).order_by(Channel.updated_at.desc())
+    )).scalars().unique().all()
+    return [await _channel_out(db, c) for c in channels]
 
 
-@router.get("/{session_id}", response_model=SessionOut)
-async def get_session(session_id: UUID, db: DbSession, user: CurrentUser) -> SessionOut:
-    return await _session_out(db, await _require(db, session_id))
+@router.get("/{channel_id}", response_model=ChannelOut)
+async def get_channel(channel_id: UUID, db: DbSession, user: CurrentUser) -> ChannelOut:
+    return await _channel_out(db, await _require(db, channel_id))
 
 
-@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def archive_session(session_id: UUID, db: DbSession, user: CurrentUser) -> None:
-    """Archive rather than delete: in a shared workspace one person should not be
-    able to destroy a transcript others were relying on."""
-    session = await _require(db, session_id)
-    session.archived = True
+@router.patch("/{channel_id}", response_model=ChannelOut)
+async def update_channel(channel_id: UUID, body: ChannelUpdate, db: DbSession,
+                         user: CurrentUser) -> ChannelOut:
+    channel = await _require(db, channel_id)
+    if body.name is not None:
+        name = body.name.strip()
+        existing = await db.scalar(
+            select(Channel.id).where(Channel.name == name, Channel.id != channel_id)
+        )
+        if existing:
+            raise HTTPException(status.HTTP_409_CONFLICT, "이미 사용 중인 채널 이름입니다")
+        channel.name = name
+    if body.description is not None:
+        channel.description = body.description
+    await db.flush()
+    return await _channel_out(db, channel)
+
+
+@router.delete("/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def archive_channel(channel_id: UUID, db: DbSession, user: CurrentUser) -> None:
+    """Archive rather than delete: a channel owns its messages, so hard-deleting
+    it would destroy a transcript others were relying on."""
+    channel = await _require(db, channel_id)
+    channel.archived = True
+    await db.flush()
+    await realtime.publish_channel_list("channel.archived", {
+        "id": str(channel_id), "by": user.name,
+    })
 
 
 # ------------------------------------------------------------------ scope -----
-@router.get("/{session_id}/documents", response_model=list[UUID])
-async def session_documents(session_id: UUID, db: DbSession, user: CurrentUser) -> list[UUID]:
-    await _require(db, session_id)
-    return await retrieval.effective_document_ids(db, session_id)
+@router.get("/{channel_id}/documents", response_model=list[UUID])
+async def channel_documents(channel_id: UUID, db: DbSession, user: CurrentUser) -> list[UUID]:
+    await _require(db, channel_id)
+    return await retrieval.channel_document_ids(db, channel_id)
 
 
-@router.patch("/{session_id}/documents", response_model=list[UUID])
-async def update_scope(session_id: UUID, body: ScopeUpdate, db: DbSession,
-                       user: CurrentUser) -> list[UUID]:
-    """Add or remove individual documents on top of the folder's set.
-
-    Removals are stored explicitly rather than by rewriting the folder, so the
-    folder stays reusable and this session's narrowing is local to it.
-    """
-    await _require(db, session_id)
+@router.patch("/{channel_id}/documents", response_model=list[UUID])
+async def update_documents(channel_id: UUID, body: ScopeUpdate, db: DbSession,
+                           user: CurrentUser) -> list[UUID]:
+    """Add or remove documents from the channel's set — flat, no delta layer."""
+    await _require(db, channel_id)
     for doc_id in body.add:
-        await _set_scope(db, session_id, doc_id, ScopeMode.add, user.id)
-    for doc_id in body.remove:
-        await _set_scope(db, session_id, doc_id, ScopeMode.remove, user.id)
+        if await db.get(Document, doc_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"문서를 찾을 수 없습니다: {doc_id}")
+        exists = await db.scalar(
+            select(ChannelDocument.document_id).where(
+                ChannelDocument.channel_id == channel_id,
+                ChannelDocument.document_id == doc_id,
+            )
+        )
+        if not exists:
+            db.add(ChannelDocument(channel_id=channel_id, document_id=doc_id, added_by=user.id))
+    if body.remove:
+        await db.execute(delete(ChannelDocument).where(
+            ChannelDocument.channel_id == channel_id,
+            ChannelDocument.document_id.in_(body.remove),
+        ))
     await db.flush()
-    return await retrieval.effective_document_ids(db, session_id)
-
-
-async def _set_scope(db, session_id: UUID, doc_id: UUID, mode: ScopeMode,
-                     user_id: UUID) -> None:
-    if await db.get(Document, doc_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"문서를 찾을 수 없습니다: {doc_id}")
-    row = (await db.execute(
-        select(SessionDocument).where(SessionDocument.session_id == session_id,
-                                      SessionDocument.document_id == doc_id)
-    )).scalar_one_or_none()
-    if row is None:
-        db.add(SessionDocument(session_id=session_id, document_id=doc_id,
-                               mode=mode, added_by=user_id))
-    else:
-        row.mode = mode
+    return await retrieval.channel_document_ids(db, channel_id)
 
 
 # --------------------------------------------------------------- messages -----
-@router.get("/{session_id}/messages", response_model=list[MessageOut])
-async def list_messages(session_id: UUID, db: DbSession, user: CurrentUser) -> list[MessageOut]:
+@router.get("/{channel_id}/messages", response_model=list[MessageOut])
+async def list_messages(channel_id: UUID, db: DbSession, user: CurrentUser) -> list[MessageOut]:
     """The live branch, with sibling counts so the UI can offer branch switching."""
-    session = await _require(db, session_id)
-    path = await tree.active_path(db, session)
+    channel = await _require(db, channel_id)
+    path = await tree.active_path(db, channel)
     out: list[MessageOut] = []
     for m in path:
         idx, count = await tree.sibling_info(db, m)
@@ -153,23 +173,23 @@ async def list_messages(session_id: UUID, db: DbSession, user: CurrentUser) -> l
     return out
 
 
-@router.get("/{session_id}/messages/{message_id}/branches", response_model=list[BranchOut])
-async def list_branches(session_id: UUID, message_id: UUID, db: DbSession,
+@router.get("/{channel_id}/messages/{message_id}/branches", response_model=list[BranchOut])
+async def list_branches(channel_id: UUID, message_id: UUID, db: DbSession,
                         user: CurrentUser) -> list[BranchOut]:
     """Alternatives that share this message's parent — the other paths taken."""
-    session = await _require(db, session_id)
+    channel = await _require(db, channel_id)
     msg = await db.get(Message, message_id)
-    if msg is None or msg.session_id != session_id:
+    if msg is None or msg.channel_id != channel_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "메시지를 찾을 수 없습니다")
 
     siblings = (await db.execute(
-        select(Message).where(Message.session_id == session_id,
+        select(Message).where(Message.channel_id == channel_id,
                               Message.parent_id == msg.parent_id,
                               Message.role == msg.role)
         .order_by(Message.created_at)
     )).scalars().all()
 
-    active = {m.id for m in await tree.active_path(db, session)}
+    active = {m.id for m in await tree.active_path(db, channel)}
     return [
         BranchOut(message_id=s.id, preview=(s.content or "")[:120],
                   created_at=s.created_at, is_active=s.id in active)
@@ -177,8 +197,8 @@ async def list_branches(session_id: UUID, message_id: UUID, db: DbSession,
     ]
 
 
-@router.post("/{session_id}/revert", response_model=list[MessageOut])
-async def revert(session_id: UUID, body: RevertRequest, db: DbSession,
+@router.post("/{channel_id}/revert", response_model=list[MessageOut])
+async def revert(channel_id: UUID, body: RevertRequest, db: DbSession,
                  user: CurrentUser) -> list[MessageOut]:
     """Move the live path back to a checkpoint.
 
@@ -186,56 +206,56 @@ async def revert(session_id: UUID, body: RevertRequest, db: DbSession,
     the database and remains reachable through the branch switcher. Continuing
     from here forks a new branch instead of overwriting what was there.
     """
-    session = await _require(db, session_id)
+    channel = await _require(db, channel_id)
     target = await db.get(Message, body.message_id)
-    if target is None or target.session_id != session_id:
+    if target is None or target.channel_id != channel_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "메시지를 찾을 수 없습니다")
 
     dropped = await tree.descendants_count(db, target.id)
-    session.active_leaf_id = target.id
+    channel.active_leaf_id = target.id
     await db.flush()
 
-    await realtime.publish_session(str(session_id), "branch.reverted", {
-        "session_id": str(session_id), "message_id": str(target.id),
+    await realtime.publish_channel(str(channel_id), "branch.reverted", {
+        "channel_id": str(channel_id), "message_id": str(target.id),
         "by": user.name, "messages_after": dropped,
     })
-    return await list_messages(session_id, db, user)
+    return await list_messages(channel_id, db, user)
 
 
-@router.post("/{session_id}/switch/{message_id}", response_model=list[MessageOut])
-async def switch_branch(session_id: UUID, message_id: UUID, db: DbSession,
+@router.post("/{channel_id}/switch/{message_id}", response_model=list[MessageOut])
+async def switch_branch(channel_id: UUID, message_id: UUID, db: DbSession,
                         user: CurrentUser) -> list[MessageOut]:
     """Make another branch the live one, following it down to its leaf."""
-    session = await _require(db, session_id)
+    channel = await _require(db, channel_id)
     msg = await db.get(Message, message_id)
-    if msg is None or msg.session_id != session_id:
+    if msg is None or msg.channel_id != channel_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "메시지를 찾을 수 없습니다")
 
-    session.active_leaf_id = await tree.leaf_of(db, message_id)
+    channel.active_leaf_id = await tree.leaf_of(db, message_id)
     await db.flush()
-    await realtime.publish_session(str(session_id), "branch.switched", {
-        "session_id": str(session_id), "message_id": str(message_id), "by": user.name,
+    await realtime.publish_channel(str(channel_id), "branch.switched", {
+        "channel_id": str(channel_id), "message_id": str(message_id), "by": user.name,
     })
-    return await list_messages(session_id, db, user)
+    return await list_messages(channel_id, db, user)
 
 
-@router.post("/{session_id}/messages")
-async def send_message(session_id: UUID, body: SendMessage, request: Request,
+@router.post("/{channel_id}/messages")
+async def send_message(channel_id: UUID, body: SendMessage, request: Request,
                        db: DbSession, user: CurrentUser):
     """Post a question and stream the answer.
 
     Everything is streamed twice: once down this response to the caller, and once
-    onto the session's Redis channel so every other viewer sees the same tokens
-    arrive. That is what makes a shared session feel like one conversation rather
+    onto the channel's Redis channel so every other viewer sees the same tokens
+    arrive. That is what makes a shared channel feel like one conversation rather
     than several private ones.
     """
-    session = await _require(db, session_id)
+    channel = await _require(db, channel_id)
 
-    parent_id = body.parent_id or session.active_leaf_id
+    parent_id = body.parent_id or channel.active_leaf_id
     branch_root = await tree.branch_root_for(db, parent_id)
 
     user_msg = Message(
-        session_id=session_id, parent_id=parent_id, branch_root_id=branch_root,
+        channel_id=channel_id, parent_id=parent_id, branch_root_id=branch_root,
         role=MessageRole.user, author_id=user.id, content=body.content.strip(),
         status=MessageStatus.complete,
     )
@@ -243,22 +263,19 @@ async def send_message(session_id: UUID, body: SendMessage, request: Request,
     await db.flush()
 
     assistant = Message(
-        session_id=session_id, parent_id=user_msg.id,
+        channel_id=channel_id, parent_id=user_msg.id,
         branch_root_id=branch_root or user_msg.id,
         role=MessageRole.assistant, content="", status=MessageStatus.queued,
     )
     db.add(assistant)
     await db.flush()
-    session.active_leaf_id = assistant.id
+    channel.active_leaf_id = assistant.id
 
-    if session.title in ("새 대화", "", None):
-        session.title = await _title_for(body.content)
-
-    history = await tree.history_for_model(db, session)
-    document_ids = await retrieval.effective_document_ids(db, session_id)
+    history = await tree.history_for_model(db, channel)
+    document_ids = await retrieval.channel_document_ids(db, channel_id)
     await db.commit()
 
-    await realtime.publish_session(str(session_id), "message", {
+    await realtime.publish_channel(str(channel_id), "message", {
         "id": str(user_msg.id), "parent_id": str(parent_id) if parent_id else None,
         "role": "user", "author": {"id": str(user.id), "name": user.name},
         "content": user_msg.content, "status": "complete",
@@ -266,23 +283,23 @@ async def send_message(session_id: UUID, body: SendMessage, request: Request,
     })
 
     return EventSourceResponse(
-        _stream_turn(request, session_id, assistant.id, user_msg.content,
+        _stream_turn(request, channel_id, assistant.id, user_msg.content,
                      history, document_ids),
         ping=15000,
     )
 
 
-async def _stream_turn(request: Request, session_id: UUID, assistant_id: UUID,
+async def _stream_turn(request: Request, channel_id: UUID, assistant_id: UUID,
                        question: str, history: list[dict], document_ids: list[UUID]):
     """Run the agent, persist the result, and fan every event out to viewers."""
     lock_token = str(uuid.uuid4())
-    channel_send = realtime.publish_session
+    channel_send = realtime.publish_channel
 
     async with SessionLocal() as db:
-        got_lock = await run_lock.acquire(str(session_id), lock_token)
+        got_lock = await run_lock.acquire(str(channel_id), lock_token)
         if not got_lock:
-            depth = await run_lock.queue_depth(str(session_id))
-            payload = {"message": "이 세션에서 다른 답변이 생성 중입니다. 잠시 후 다시 시도해 주세요.",
+            depth = await run_lock.queue_depth(str(channel_id))
+            payload = {"message": "이 채널에서 다른 답변이 생성 중입니다. 잠시 후 다시 시도해 주세요.",
                        "queued_ahead": depth}
             yield {"event": "error", "data": json.dumps(payload, ensure_ascii=False)}
             return
@@ -305,7 +322,7 @@ async def _stream_turn(request: Request, session_id: UUID, assistant_id: UUID,
                 if await request.is_disconnected():
                     # The author closed the tab; other viewers may still be
                     # watching, so the run continues and only this stream stops.
-                    log.info("caller disconnected from session %s", session_id)
+                    log.info("caller disconnected from channel %s", channel_id)
 
                 data = dict(ev.data)
                 if ev.type == "token":
@@ -326,11 +343,11 @@ async def _stream_turn(request: Request, session_id: UUID, assistant_id: UUID,
                 elif ev.type == "error":
                     error = data.get("message")
 
-                payload = json.dumps({"session_id": str(session_id),
+                payload = json.dumps({"channel_id": str(channel_id),
                                       "message_id": str(assistant_id), **data},
                                      ensure_ascii=False, default=str)
                 yield {"event": ev.type, "data": payload}
-                await channel_send(str(session_id), ev.type,
+                await channel_send(str(channel_id), ev.type,
                                    {"message_id": str(assistant_id), **data})
 
             resolved = await _persist(db, assistant_id, answer, citations,
@@ -339,10 +356,10 @@ async def _stream_turn(request: Request, session_id: UUID, assistant_id: UUID,
             final = {"message_id": str(assistant_id),
                      "citations": [r.as_dict() for r in resolved]}
             yield {"event": "final", "data": json.dumps(final, ensure_ascii=False, default=str)}
-            await channel_send(str(session_id), "final", final)
+            await channel_send(str(channel_id), "final", final)
 
         except Exception as exc:  # noqa: BLE001
-            log.exception("turn failed in session %s", session_id)
+            log.exception("turn failed in channel %s", channel_id)
             msg = await db.get(Message, assistant_id)
             if msg is not None:
                 msg.status = MessageStatus.failed
@@ -351,7 +368,7 @@ async def _stream_turn(request: Request, session_id: UUID, assistant_id: UUID,
             yield {"event": "error", "data": json.dumps({"message": str(exc)},
                                                         ensure_ascii=False)}
         finally:
-            await run_lock.release(str(session_id), lock_token)
+            await run_lock.release(str(channel_id), lock_token)
 
 
 def _rehydrate(data: dict) -> cit.Citation:
@@ -426,40 +443,26 @@ async def _persist(db, assistant_id: UUID, answer: str, citations: list[cit.Cita
     return resolved
 
 
-async def _title_for(question: str) -> str:
-    from api.app.agent.prompts import ko
-
-    try:
-        title = await llm_client.complete(
-            [{"role": "system", "content": ko.TITLE_SYSTEM},
-             {"role": "user", "content": question}],
-            temperature=0.3, max_tokens=40)
-        title = title.strip().strip('"\'').splitlines()[0][:60]
-        return title or question[:40]
-    except Exception:  # noqa: BLE001 - a title is never worth failing a turn over
-        return question[:40]
-
-
 # ------------------------------------------------------------------ events ----
-@router.get("/{session_id}/events")
-async def session_events(session_id: UUID, request: Request, db: DbSession,
+@router.get("/{channel_id}/events")
+async def channel_events(channel_id: UUID, request: Request, db: DbSession,
                          user: CurrentUser):
-    """Everything happening in this session, for every viewer.
+    """Everything happening in this channel, for every viewer.
 
     Includes other people's messages and the assistant tokens they triggered, so
-    opening a session someone else is using shows the answer arriving live.
+    opening a channel someone else is using shows the answer arriving live.
     """
-    await _require(db, session_id)
+    await _require(db, channel_id)
 
     async def gen():
-        await realtime.heartbeat(str(session_id), str(user.id), user.name)
-        viewers = await realtime.viewers(str(session_id))
+        await realtime.heartbeat(str(channel_id), str(user.id), user.name)
+        viewers = await realtime.viewers(str(channel_id))
         yield {"event": "presence", "data": json.dumps({"viewers": viewers},
                                                        ensure_ascii=False)}
 
-        beat = asyncio.create_task(_presence_loop(session_id, user))
+        beat = asyncio.create_task(_presence_loop(channel_id, user))
         try:
-            async for event in realtime.subscribe(realtime.session_channel(str(session_id))):
+            async for event in realtime.subscribe(realtime.channel_key(str(channel_id))):
                 if await request.is_disconnected():
                     break
                 yield {"event": event["event"],
@@ -470,39 +473,36 @@ async def session_events(session_id: UUID, request: Request, db: DbSession,
     return EventSourceResponse(gen(), ping=15000)
 
 
-async def _presence_loop(session_id: UUID, user) -> None:
+async def _presence_loop(channel_id: UUID, user) -> None:
     """Refresh this viewer's presence key so "3 viewing" stays accurate."""
     try:
         while True:
-            await realtime.heartbeat(str(session_id), str(user.id), user.name)
+            await realtime.heartbeat(str(channel_id), str(user.id), user.name)
             await asyncio.sleep(10)
     except asyncio.CancelledError:
         pass
 
 
 # ----------------------------------------------------------------- helpers ----
-async def _require(db, session_id: UUID) -> ChatSession:
-    session = (await db.execute(
-        select(ChatSession).options(selectinload(ChatSession.creator))
-        .where(ChatSession.id == session_id)
+async def _require(db, channel_id: UUID) -> Channel:
+    channel = (await db.execute(
+        select(Channel).options(selectinload(Channel.creator))
+        .where(Channel.id == channel_id)
     )).scalar_one_or_none()
-    if session is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "세션을 찾을 수 없습니다")
-    return session
+    if channel is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "채널을 찾을 수 없습니다")
+    return channel
 
 
-async def _session_out(db, s: ChatSession) -> SessionOut:
+async def _channel_out(db, c: Channel) -> ChannelOut:
     msg_count = await db.scalar(select(func.count()).select_from(Message)
-                                .where(Message.session_id == s.id))
-    docs = await retrieval.effective_document_ids(db, s.id)
-    folder_name = None
-    if s.folder_id:
-        folder_name = await db.scalar(select(Folder.name).where(Folder.id == s.folder_id))
-    return SessionOut(
-        id=s.id, title=s.title, folder_id=s.folder_id, folder_name=folder_name,
-        created_by=_user_out(s.creator), active_leaf_id=s.active_leaf_id,
+                                .where(Message.channel_id == c.id))
+    docs = await retrieval.channel_document_ids(db, c.id)
+    return ChannelOut(
+        id=c.id, name=c.name, description=c.description,
+        created_by=_user_out(c.creator), active_leaf_id=c.active_leaf_id,
         message_count=msg_count or 0, document_count=len(docs),
-        created_at=s.created_at, updated_at=s.updated_at,
+        archived=c.archived, created_at=c.created_at, updated_at=c.updated_at,
     )
 
 
@@ -515,7 +515,7 @@ async def _message_out(db, m: Message, sibling_index: int, sibling_count: int) -
         )).all()
         docs = {r[0]: r[1] for r in rows}
     return MessageOut(
-        id=m.id, session_id=m.session_id, parent_id=m.parent_id, role=m.role.value,
+        id=m.id, channel_id=m.channel_id, parent_id=m.parent_id, role=m.role.value,
         author=_user_out(m.author), content=m.content, status=m.status.value,
         citations=[
             CitationOut(**{**tree.citation_out(c),

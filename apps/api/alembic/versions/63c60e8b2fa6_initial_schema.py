@@ -79,16 +79,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_documents_sha256'), 'documents', ['sha256'], unique=False)
     op.create_index(op.f('ix_documents_status'), 'documents', ['status'], unique=False)
     op.create_index('ix_documents_status_created', 'documents', ['status', 'created_at'], unique=False)
-    op.create_table('folders',
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('name', sa.String(length=200), nullable=False),
-    sa.Column('description', sa.Text(), nullable=True),
-    sa.Column('created_by', sa.UUID(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['created_by'], ['users.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
-    )
     op.create_table('topic_aliases',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.Column('topic_id', sa.UUID(), nullable=False),
@@ -135,15 +125,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['topic_id'], ['topics.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('document_id', 'topic_id')
     )
-    op.create_table('folder_documents',
-    sa.Column('folder_id', sa.UUID(), nullable=False),
-    sa.Column('document_id', sa.UUID(), nullable=False),
-    sa.Column('added_by', sa.UUID(), nullable=True),
-    sa.ForeignKeyConstraint(['added_by'], ['users.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['document_id'], ['documents.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['folder_id'], ['folders.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('folder_id', 'document_id')
-    )
     op.create_table('ingest_jobs',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('document_id', sa.UUID(), nullable=False),
@@ -159,21 +140,19 @@ def upgrade() -> None:
     sa.UniqueConstraint('document_id', 'stage', name='uq_job_stage')
     )
     op.create_index(op.f('ix_ingest_jobs_document_id'), 'ingest_jobs', ['document_id'], unique=False)
-    op.create_table('sessions',
+    op.create_table('channels',
     sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('title', sa.String(length=300), nullable=False),
-    sa.Column('folder_id', sa.UUID(), nullable=True),
+    sa.Column('name', sa.String(length=200), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
     sa.Column('created_by', sa.UUID(), nullable=True),
     sa.Column('active_leaf_id', sa.UUID(), nullable=True),
     sa.Column('archived', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['active_leaf_id'], ['messages.id'], ondelete='SET NULL', use_alter=True),
     sa.ForeignKeyConstraint(['created_by'], ['users.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['folder_id'], ['folders.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('name', name='uq_channels_name')
     )
-    op.create_index(op.f('ix_sessions_folder_id'), 'sessions', ['folder_id'], unique=False)
     op.create_table('chunks',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.Column('document_id', sa.UUID(), nullable=False),
@@ -198,7 +177,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_chunks_document_id'), 'chunks', ['document_id'], unique=False)
     op.create_table('messages',
     sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('session_id', sa.UUID(), nullable=False),
+    sa.Column('channel_id', sa.UUID(), nullable=False),
     sa.Column('parent_id', sa.UUID(), nullable=True),
     sa.Column('branch_root_id', sa.UUID(), nullable=True),
     sa.Column('role', sa.Enum('user', 'assistant', 'system', name='message_role'), nullable=False),
@@ -210,22 +189,28 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['author_id'], ['users.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['parent_id'], ['messages.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['session_id'], ['sessions.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['channel_id'], ['channels.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_messages_branch_root_id'), 'messages', ['branch_root_id'], unique=False)
     op.create_index(op.f('ix_messages_parent_id'), 'messages', ['parent_id'], unique=False)
-    op.create_index('ix_messages_session_created', 'messages', ['session_id', 'created_at'], unique=False)
-    op.create_index(op.f('ix_messages_session_id'), 'messages', ['session_id'], unique=False)
-    op.create_table('session_documents',
-    sa.Column('session_id', sa.UUID(), nullable=False),
+    op.create_index('ix_messages_channel_created', 'messages', ['channel_id', 'created_at'], unique=False)
+    op.create_index(op.f('ix_messages_channel_id'), 'messages', ['channel_id'], unique=False)
+    # Deferred: channels.active_leaf_id references a table that doesn't exist
+    # yet at channels' own create_table time. use_alter=True on that column's
+    # ForeignKeyConstraint only suppresses it from the inline CREATE TABLE —
+    # it does not, by itself, schedule this ALTER TABLE, so it has to be added
+    # explicitly once messages exists.
+    op.create_foreign_key('channels_active_leaf_id_fkey', 'channels', 'messages',
+                          ['active_leaf_id'], ['id'], ondelete='SET NULL')
+    op.create_table('channel_documents',
+    sa.Column('channel_id', sa.UUID(), nullable=False),
     sa.Column('document_id', sa.UUID(), nullable=False),
-    sa.Column('mode', sa.Enum('add', 'remove', name='scope_mode'), nullable=False),
     sa.Column('added_by', sa.UUID(), nullable=True),
     sa.ForeignKeyConstraint(['added_by'], ['users.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['document_id'], ['documents.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['session_id'], ['sessions.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('session_id', 'document_id')
+    sa.ForeignKeyConstraint(['channel_id'], ['channels.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('channel_id', 'document_id')
     )
     op.create_table('agent_runs',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -325,20 +310,19 @@ def downgrade() -> None:
     op.drop_table('chunk_spans')
     op.drop_index(op.f('ix_agent_runs_message_id'), table_name='agent_runs')
     op.drop_table('agent_runs')
-    op.drop_table('session_documents')
-    op.drop_index(op.f('ix_messages_session_id'), table_name='messages')
-    op.drop_index('ix_messages_session_created', table_name='messages')
+    op.drop_table('channel_documents')
+    op.drop_constraint('channels_active_leaf_id_fkey', 'channels', type_='foreignkey')
+    op.drop_index(op.f('ix_messages_channel_id'), table_name='messages')
+    op.drop_index('ix_messages_channel_created', table_name='messages')
     op.drop_index(op.f('ix_messages_parent_id'), table_name='messages')
     op.drop_index(op.f('ix_messages_branch_root_id'), table_name='messages')
     op.drop_table('messages')
     op.drop_index(op.f('ix_chunks_document_id'), table_name='chunks')
     op.drop_index('ix_chunks_doc_page', table_name='chunks')
     op.drop_table('chunks')
-    op.drop_index(op.f('ix_sessions_folder_id'), table_name='sessions')
-    op.drop_table('sessions')
+    op.drop_table('channels')
     op.drop_index(op.f('ix_ingest_jobs_document_id'), table_name='ingest_jobs')
     op.drop_table('ingest_jobs')
-    op.drop_table('folder_documents')
     op.drop_table('document_topics')
     op.drop_table('document_pages')
     op.drop_index('ix_elements_doc_order', table_name='document_elements')
@@ -346,7 +330,6 @@ def downgrade() -> None:
     op.drop_table('document_elements')
     op.drop_index(op.f('ix_topic_aliases_topic_id'), table_name='topic_aliases')
     op.drop_table('topic_aliases')
-    op.drop_table('folders')
     op.drop_index('ix_documents_status_created', table_name='documents')
     op.drop_index(op.f('ix_documents_status'), table_name='documents')
     op.drop_index(op.f('ix_documents_sha256'), table_name='documents')

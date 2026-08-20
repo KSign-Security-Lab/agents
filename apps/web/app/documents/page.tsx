@@ -17,7 +17,7 @@ export default async function DocumentsPage() {
   ]);
 
   return (
-    <Shell user={user} active="documents">
+    <Shell user={user} activeTop="documents">
       <DocumentBrowser initialDocuments={documents} topics={topics} />
     </Shell>
   );
