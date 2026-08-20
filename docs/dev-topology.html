@@ -387,7 +387,7 @@ $EDITOR docker/.env    <span class="c"># VLLM_A_GPUS, BIND_ADDR</span></pre>
         <div>
           <p class="step">Serve it</p>
 <pre><span class="k">make</span> gpu          <span class="c"># or: make gpu MODE=tp2</span>
-<span class="k">make</span> gpu-health   <span class="c"># is it actually serving?</span></pre>
+<span class="k">make</span> gpu-logs S=vllm-a</pre>
         </div>
         <p class="who">No Postgres, no Redis, no web, no worker on this box — <span class="inline">compose.gpu.yml</span>
         contains only these two services.</p>

@@ -24,7 +24,7 @@ DCGPUP := LLM_MODE=$(MODE) $(DCGPU) --profile llm-$(MODE)
 PY := bash scripts/dev.sh exec
 
 .DEFAULT_GOAL := help
-.PHONY: help gpu gpu-down gpu-logs gpu-build gpu-health pull-models setup \
+.PHONY: help gpu gpu-down gpu-logs gpu-build pull-models setup \
         dev dev-setup dev-down dev-reset dev-logs dev-psql dev-build \
         migrate revision seed test fmt samples ingest eval citation-check clean
 
@@ -67,20 +67,6 @@ gpu-build: ## Rebuild the infer image (after apps/infer or its requirements chan
 
 gpu-logs: ## Tail GPU-side logs, e.g. make gpu-logs S=vllm-a
 	$(DCGPUP) logs -f --tail=200 $(S)
-
-gpu-health: ## Is it serving, and on which physical GPU?
-	@set -a; . $(GPU_ENV); set +a; \
-	  echo "gateway: $$(curl -s localhost:$${LLM_GATEWAY_PORT:-8602}/gateway/health)"; \
-	  echo "models:  $$(curl -s localhost:$${LLM_GATEWAY_PORT:-8602}/v1/models)"; \
-	  echo "infer:   $$(curl -s localhost:$${INFER_PORT:-8603}/health)"
-	@echo "--- CUDA_VISIBLE_DEVICES as the RUNNING containers actually have it ---"
-	@for s in vllm-a vllm-b vllm-tp infer; do \
-	  id=$$($(DCGPU) ps -q $$s 2>/dev/null); \
-	  [ -n "$$id" ] || continue; \
-	  printf "  %-8s %s\n" $$s \
-	    "$$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $$id | grep '^CUDA_VISIBLE_DEVICES=')"; \
-	done
-	@echo "  (inside the process that card is always renumbered to 0 — see the README)"
 
 pull-models: ## Pre-download LLM + embed/rerank/ASR weights (~30GB)
 	bash scripts/pull_models.sh

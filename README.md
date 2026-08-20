@@ -78,7 +78,6 @@ default 32B AWQ model (two unlock `tp2`/`dp2`), and ~35GB of disk for weights.
 make setup            # writes docker/.env
 $EDITOR docker/.env   # VLLM_A_GPUS, and BIND_ADDR=0.0.0.0 if devs connect directly
 make gpu              # or: make gpu MODE=tp2
-make gpu-health       # is the model actually served?
 ```
 
 Weights download on first start — ~30GB before the GPU is touched at all, which
@@ -95,15 +94,16 @@ which physical card it is. Logs can't tell you which GPU you got.
 Two places can:
 
 ```bash
-make gpu-health          # CUDA_VISIBLE_DEVICES as the running containers have it
-nvidia-smi               # on the host — which physical card holds the memory
+nvidia-smi                                    # on the host: which card holds the memory
+docker inspect $(docker compose --env-file docker/.env \
+  -f docker/compose.gpu.yml ps -q vllm-a) \
+  -f '{{range .Config.Env}}{{println .}}{{end}}' | grep CUDA
 ```
 
-If `make gpu-health` disagrees with `docker/.env`, the container predates your
-edit. `docker restart` never re-reads compose config; only a recreate does, which
-is what `make gpu` does. Note also that `INFER_GPUS` defaults to `1` while
-`VLLM_A_GPUS` defaults to `0`, so the two land on different cards unless you set
-both.
+If that disagrees with `docker/.env`, the container predates your edit. `docker
+restart` never re-reads compose config; only a recreate does, which is what `make
+gpu` does. Note also that `INFER_GPUS` defaults to `1` while `VLLM_A_GPUS`
+defaults to `0`, so the two land on different cards unless you set both.
 
 ### Dev side
 
