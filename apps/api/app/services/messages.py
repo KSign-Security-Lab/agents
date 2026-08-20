@@ -40,7 +40,6 @@ async def path_to(db: AsyncSession, message_id: UUID) -> list[Message]:
 
 
 def _ancestors_cte(message_id: UUID):
-    from sqlalchemy import literal, union_all
 
     base = (
         select(Message.id, Message.parent_id)

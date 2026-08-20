@@ -264,7 +264,7 @@
 <div class="wrap">
 
   <header>
-    <p class="eyebrow">문서 기반 에이전트 · local development</p>
+    <p class="eyebrow">문서 기반 에이전트 · make gpu / make dev</p>
     <h1><span class="a">One GPU server</span> serves the models.<br><span class="b">Your laptop</span> runs everything else.</h1>
     <p class="lede">Nothing you run locally needs a GPU, so this works on a Mac. The two services that
     need CUDA live on the shared box; the two services you actually edit run on your host with hot reload.</p>
@@ -381,17 +381,16 @@
         <p class="who">Once, by whoever owns the box — then again only after a reboot.</p>
         <div>
           <p class="step">First time</p>
-<pre><span class="k">make</span> setup            <span class="c"># docker/.env + secrets</span>
-$EDITOR docker/.env    <span class="c"># VLLM_A_GPUS, BIND_ADDR</span>
-<span class="k">make</span> build</pre>
+<pre><span class="k">make</span> setup            <span class="c"># writes docker/.env</span>
+$EDITOR docker/.env    <span class="c"># VLLM_A_GPUS, BIND_ADDR</span></pre>
         </div>
         <div>
           <p class="step">Serve it</p>
-<pre><span class="k">make</span> serve-gpu   <span class="c"># vllm + infer, nothing else</span>
-curl localhost:8602/gateway/health</pre>
+<pre><span class="k">make</span> gpu          <span class="c"># or: make gpu MODE=tp2</span>
+<span class="k">make</span> gpu-health   <span class="c"># is it actually serving?</span></pre>
         </div>
-        <p class="who">No Postgres, no Redis, no web, no worker on this box. Those belong to whoever is
-        developing.</p>
+        <p class="who">No Postgres, no Redis, no web, no worker on this box — <span class="inline">compose.gpu.yml</span>
+        contains only these two services.</p>
       </div>
 
       <div class="card card-loc">
@@ -483,11 +482,11 @@ ssh -N -L 8602:localhost:8602 \
   </section>
 
   <div class="callout">
-    <p class="step">Don't reach for this one</p>
-    <p><span class="inline">make up</span> runs the <em>whole</em> stack — Postgres, Redis, vllm, infer, api,
-    worker, web — in Docker on a single GPU host. That is the deploy path, and it needs CUDA locally, so it
-    cannot work on a Mac at all. The <span class="inline">LLM_MODE</span>, compose-profile and nginx-gateway
-    machinery belongs to it. A developer never touches any of that.</p>
+    <p class="step">There is no third mode</p>
+    <p>These two commands are the whole system. <span class="inline">make gpu</span> needs CUDA;
+    <span class="inline">make dev</span> needs nothing but Docker. They're independent, so if you want
+    everything on one machine you run both — there is no separate all-in-one path to learn, and no
+    combined stack that can drift from what developers actually run.</p>
   </div>
 
   <footer>

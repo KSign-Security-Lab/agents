@@ -1,171 +1,147 @@
 # ---------------------------------------------------------------------------
-#  Agentic Document QA Platform
+#  문서 기반 에이전트 — two things you can run, independently.
 #
-#  LLM_MODE selects the GPU topology and is mapped onto a compose profile.
-#  The application always talks to the gateway, never to a replica.
-#    make up                  # LLM_MODE from docker/.env (default: single)
-#    make up LLM_MODE=dp2     # two replicas, load split across both GPUs
-#    make llm-mode MODE=tp2   # restart serving with the model split over 2 GPUs
+#    make gpu    the GPU side: vllm + infer          (docker/compose.gpu.yml)
+#    make dev    the dev side: db, queue, api, web   (docker/compose.dev.yml)
+#
+#  A developer runs `make dev` and points GPU_HOST at a machine running
+#  `make gpu`. Want everything on one box? Run both. There is no third mode.
 # ---------------------------------------------------------------------------
 SHELL := /bin/bash
-ENV_FILE := docker/.env
-COMPOSE_FILE := docker/compose.yml
 
-# Read LLM_MODE from the env file unless overridden on the command line.
-LLM_MODE ?= $(shell grep -E '^LLM_MODE=' $(ENV_FILE) 2>/dev/null | cut -d= -f2)
-LLM_MODE := $(if $(LLM_MODE),$(LLM_MODE),single)
-PROFILE := llm-$(LLM_MODE)
+GPU_ENV  := docker/.env
+DEV_ENV  := docker/.env.dev
+DCGPU    := docker compose --env-file $(GPU_ENV) -f docker/compose.gpu.yml
+DCDEV    := docker compose -f docker/compose.dev.yml
 
-DC := docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
-DCP := LLM_MODE=$(LLM_MODE) $(DC) --profile $(PROFILE)
+# MODE picks the GPU topology; it persists to docker/.env so `make gpu` repeats it.
+MODE ?= $(shell grep -E '^LLM_MODE=' $(GPU_ENV) 2>/dev/null | cut -d= -f2)
+MODE := $(if $(MODE),$(MODE),single)
+DCGPUP := LLM_MODE=$(MODE) $(DCGPU) --profile llm-$(MODE)
+
+# Anything touching the app runs through dev.sh, which owns one copy of the env
+# derivation (DATABASE_URL from the dev ports, .venv, cwd=apps/).
+PY := bash scripts/dev.sh exec
 
 .DEFAULT_GOAL := help
-.PHONY: help setup up down restart ps logs build build-api build-worker build-infer \
-        build-web migrate revision seed shell-api shell-worker psql redis-cli \
-        llm-mode pull-models samples test test-citations citation-check \
-        ingest eval fmt clean-images bootstrap \
-        dev dev-setup dev-build dev-down dev-reset dev-logs dev-psql serve-gpu
+.PHONY: help gpu gpu-down gpu-logs gpu-build gpu-health pull-models setup \
+        dev dev-setup dev-down dev-reset dev-logs dev-psql dev-build \
+        migrate revision seed test fmt samples ingest eval citation-check clean
 
 help: ## Show this help
-	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
-	  awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-18s\033[0m %s\n",$$1,$$2}'
+	@echo "  GPU side"
+	@grep -hE '^(gpu|pull-models|setup)[a-z-]*:.*?## ' $(MAKEFILE_LIST) | \
+	  awk 'BEGIN{FS=":.*?## "}{printf "    \033[36m%-16s\033[0m %s\n",$$1,$$2}'
+	@echo "  Dev side"
+	@grep -hE '^dev[a-z-]*:.*?## ' $(MAKEFILE_LIST) | \
+	  awk 'BEGIN{FS=":.*?## "}{printf "    \033[36m%-16s\033[0m %s\n",$$1,$$2}'
+	@echo "  Working on the code"
+	@grep -hE '^(migrate|revision|seed|test|fmt|samples|ingest|eval|citation-check|clean):.*?## ' $(MAKEFILE_LIST) | \
+	  awk 'BEGIN{FS=":.*?## "}{printf "    \033[36m%-16s\033[0m %s\n",$$1,$$2}'
 
-## --------------------------------------------------------------- dev
-#  Local development: GPU work stays on the GPU server, Postgres/Redis run in
-#  Docker here, api and web run on the host with hot reload. See scripts/dev.sh.
-DEV_ENV := docker/.env.dev
-DCDEV := docker compose -f docker/compose.dev.yml
+## =========================================================== GPU side
+setup: ## GPU side, first run: create docker/.env and its data dirs
+	@test -f $(GPU_ENV) && echo "$(GPU_ENV) already exists, leaving it alone" || { \
+	  cp docker/.env.example $(GPU_ENV); \
+	  echo "wrote $(GPU_ENV) -- check VLLM_A_GPUS and BIND_ADDR"; }
+	@set -a; . $(GPU_ENV); set +a; \
+	  mkdir -p "$${GPU_DATA_ROOT:-docker/gpudata}" "$${MODEL_DIR:-docker/gpudata/models/vllm}" \
+	           "$${INFER_MODEL_DIR:-docker/gpudata/models/infer}"
 
-dev-setup: ## Create docker/.env.dev from the example, then edit GPU_HOST
+gpu: ## Serve the models. make gpu MODE=single|tp2|dp2 (default: whatever .env says)
+	@test -f $(GPU_ENV) || { echo "run 'make setup' first"; exit 1; }
+	@case "$(MODE)" in single|tp2|dp2) ;; *) echo "MODE must be single|tp2|dp2"; exit 1;; esac
+	@grep -q '^LLM_MODE=$(MODE)$$' $(GPU_ENV) || \
+	  { sed -i.bak 's/^LLM_MODE=.*/LLM_MODE=$(MODE)/' $(GPU_ENV) && rm -f $(GPU_ENV).bak; }
+	$(DCGPU) --profile llm-single --profile llm-tp2 --profile llm-dp2 \
+	  rm -sf vllm-a vllm-b vllm-tp 2>/dev/null || true
+	$(DCGPUP) up -d
+	@$(DCGPUP) ps
+	@echo "==> weights download on first start; watch it with 'make gpu-logs'"
+
+gpu-down: ## Stop the GPU side
+	$(DCGPU) --profile llm-single --profile llm-tp2 --profile llm-dp2 down
+
+gpu-build: ## Rebuild the infer image (after apps/infer or its requirements change)
+	$(DCGPU) build infer
+
+gpu-logs: ## Tail GPU-side logs, e.g. make gpu-logs S=vllm-a
+	$(DCGPUP) logs -f --tail=200 $(S)
+
+gpu-health: ## Is the model actually being served?
+	@set -a; . $(GPU_ENV); set +a; \
+	  echo "gateway: $$(curl -s localhost:$${LLM_GATEWAY_PORT:-8602}/gateway/health)"; \
+	  echo "models:  $$(curl -s localhost:$${LLM_GATEWAY_PORT:-8602}/v1/models)"; \
+	  echo "infer:   $$(curl -s localhost:$${INFER_PORT:-8603}/health)"
+
+pull-models: ## Pre-download LLM + embed/rerank/ASR weights (~30GB)
+	bash scripts/pull_models.sh
+
+## =========================================================== Dev side
+dev-setup: ## Dev side, first run: create docker/.env.dev
 	@test -f $(DEV_ENV) && echo "$(DEV_ENV) already exists, leaving it alone" || { \
 	  cp docker/.env.dev.example $(DEV_ENV); \
 	  echo "wrote $(DEV_ENV) -- set GPU_HOST, then run 'make dev'"; }
 
-dev: ## Start local dev: deps + migrate + seed + api and web with reload
+dev: ## Start dev: db + queue in Docker, api + web on the host with reload
 	bash scripts/dev.sh $(S)
 
-dev-build: ## Rebuild the dev worker image (only needed after a requirements/Dockerfile change)
-	INGEST=1 $(DCDEV) --profile ingest build worker
-	INGEST=1 $(DCDEV) --profile ingest up -d --wait
-
-dev-down: ## Stop the local dev containers (data preserved)
+dev-down: ## Stop the dev containers (data preserved)
 	$(DCDEV) --profile ingest down
 
-dev-reset: ## Stop dev containers and delete the local dev database
+dev-reset: ## Stop them and delete the local database
 	$(DCDEV) --profile ingest down -v
 	rm -rf docker/devdata
+
+dev-build: ## Rebuild the worker image (after a requirements/Dockerfile change)
+	$(DCDEV) --profile ingest build worker
+	$(DCDEV) --profile ingest up -d --wait
 
 dev-logs: ## Tail dev container logs, e.g. make dev-logs S=worker
 	$(DCDEV) --profile ingest logs -f --tail=200 $(S)
 
-dev-psql: ## psql into the local dev database
+dev-psql: ## psql into the local database
 	$(DCDEV) exec postgres psql -U agents -d agents
 
-serve-gpu: ## On the GPU server: serve ONLY vllm + infer for remote developers
-	$(DCP) up -d llm-gateway infer $(if $(filter dp2,$(LLM_MODE)),vllm-a vllm-b,$(if $(filter tp2,$(LLM_MODE)),vllm-tp,vllm-a))
-	@$(DCP) ps
-
-## ------------------------------------------------------------- setup
-setup: ## First run on a new machine: create .env with fresh secrets and data dirs
-	@test -f $(ENV_FILE) && echo "$(ENV_FILE) already exists, leaving it alone" || { \
-	  cp docker/.env.example $(ENV_FILE); \
-	  python3 scripts/gen_secrets.py $(ENV_FILE); \
-	  echo "wrote $(ENV_FILE) with generated secrets"; }
-	@set -a; . $(ENV_FILE); set +a; \
-	  mkdir -p "$$DATA_ROOT"/{postgres,redis,storage,logs,out} "$$MODEL_DIR" "$$INFER_MODEL_DIR"; \
-	  echo "created data directories under $$DATA_ROOT"
-	@echo
-	@echo "Next:  make pull-models   (downloads ~30GB; optional, vLLM will fetch on first start)"
-	@echo "       make build && make up"
-	@echo "       make migrate && make seed"
-
-bootstrap: setup build up migrate seed ## setup + build + up + migrate + seed, in order
-	@echo "==> ready. web on port $$(grep -E '^WEB_PORT=' $(ENV_FILE) | cut -d= -f2)"
-
-## ------------------------------------------------------------- lifecycle
-up: ## Start the whole stack (LLM_MODE selects the GPU topology)
-	@echo "==> LLM_MODE=$(LLM_MODE) (profile $(PROFILE))"
-	$(DCP) up -d
-	@$(MAKE) --no-print-directory ps
-
-down: ## Stop the stack (data on /data is preserved)
-	$(DC) --profile llm-single --profile llm-dp2 --profile llm-tp2 down
-
-restart: down up ## Restart everything
-
-ps: ## Show service status
-	@$(DCP) ps
-
-logs: ## Tail logs, e.g. make logs S=api
-	$(DCP) logs -f --tail=200 $(S)
-
-build: ## Build all application images
-	$(DC) build api worker infer web
-
-build-api:    ; $(DC) build api
-build-worker: ; $(DC) build worker
-build-infer:  ; $(DC) build infer
-build-web:    ; $(DC) build web
-
-## ------------------------------------------------------------- llm serving
-llm-mode: ## Switch GPU topology without touching app code: make llm-mode MODE=dp2
-	@test -n "$(MODE)" || { echo "usage: make llm-mode MODE=single|tp2|dp2"; exit 1; }
-	@case "$(MODE)" in single|tp2|dp2) ;; *) echo "MODE must be single|tp2|dp2"; exit 1;; esac
-	$(DC) --profile llm-single --profile llm-dp2 --profile llm-tp2 stop vllm-a vllm-b vllm-tp || true
-	$(DC) --profile llm-single --profile llm-dp2 --profile llm-tp2 rm -f vllm-a vllm-b vllm-tp || true
-	sed -i 's/^LLM_MODE=.*/LLM_MODE=$(MODE)/' $(ENV_FILE)
-	@$(MAKE) --no-print-directory up LLM_MODE=$(MODE)
-	@echo "==> gateway now reports:"; sleep 3; curl -s localhost:$$(grep -E '^LLM_GATEWAY_PORT=' $(ENV_FILE) | cut -d= -f2)/gateway/health; echo
-
-pull-models: ## Pre-download LLM + embed/rerank/ASR weights to /data
-	bash scripts/pull_models.sh
-
-## ------------------------------------------------------------- database
+## ================================================== Working on the code
+#  These run against the dev side. `make dev` (or `make dev S=deps`) creates the
+#  .venv they use; anything needing LibreOffice or OCR goes to the worker
+#  container instead, because those are why that image is large.
 migrate: ## Apply migrations
-	$(DC) exec -T api alembic -c api/alembic.ini upgrade head
+	@$(PY) alembic -c api/alembic.ini upgrade head
 
 revision: ## Autogenerate a migration: make revision M="add x"
-	$(DC) exec -T api alembic -c api/alembic.ini revision --autogenerate -m "$(M)"
+	@test -n "$(M)" || { echo 'usage: make revision M="add x"'; exit 1; }
+	@$(PY) alembic -c api/alembic.ini revision --autogenerate -m "$(M)"
 
-seed: ## Create the first admin user and demo folder
-	$(DC) exec -T api python -m api.scripts.seed
-
-psql: ## Open a psql shell
-	$(DC) exec postgres psql -U $$(grep -E '^POSTGRES_USER=' $(ENV_FILE) | cut -d= -f2) \
-	                          -d $$(grep -E '^POSTGRES_DB=' $(ENV_FILE) | cut -d= -f2)
-
-redis-cli: ; $(DC) exec redis redis-cli
-
-## ------------------------------------------------------------- dev / test
-shell-api:    ; $(DC) exec api bash
-shell-worker: ; $(DC) exec worker bash
+seed: ## Create/reset the admin account
+	@$(PY) python -m api.scripts.seed
 
 test: ## Run the API test suite
-	$(DC) exec -T api pytest api/tests -q
+	@$(PY) pytest api/tests -q
 
-test-citations: ## Citation marker parsing + span->bbox geometry
-	$(DC) exec -T api pytest api/tests/test_citations.py -q
-
-citation-check: ## Render a document's stored bboxes onto its pages: make citation-check DOC=<uuid>
-	@test -n "$(DOC)" || { echo "usage: make citation-check DOC=<document-id>"; exit 1; }
-	$(DC) exec -T worker python -m api.scripts.citation_check $(DOC)
-	@echo "==> wrote $$(grep -E '^DATA_ROOT=' $(ENV_FILE) | cut -d= -f2)/out/ — open the PNGs and check the boxes cover the right text"
-
-samples: ## Generate Korean sample documents for testing
-	$(DC) run --rm --no-deps -v $$(pwd):/work -w /work worker python scripts/make_samples.py samples
-
-ingest: ## Ingest a local file directly: make ingest FILE=samples/x.pdf
-	@test -n "$(FILE)" || { echo "usage: make ingest FILE=path"; exit 1; }
-	$(DC) exec -T worker python -m api.scripts.ingest_local "/storage/../$(FILE)"
+# `ruff format` is deliberately not wired in: it would rewrite ~3800 lines in one
+# go, which deserves its own commit rather than riding along with a lint fix.
+fmt: ## Lint and autofix, config in apps/ruff.toml
+	@$(PY) ruff check --fix api
 
 eval: ## Answer + citation accuracy on the Korean gold set
-	$(DC) exec -T api python -m api.scripts.run_eval
+	@$(PY) python -m api.scripts.run_eval
 
-fmt: ## Format and lint
-	$(DC) exec -T api sh -c "ruff check --fix api && ruff format api"
+samples: ## Generate Korean sample documents
+	$(DCDEV) --profile ingest run --rm --no-deps -v $(CURDIR):/work -w /work \
+	  worker python scripts/make_samples.py samples
 
-clean-images: ## Reclaim build cache and images orphaned by a rebuild (safe: only rebuildable layers)
+ingest: ## Ingest a local file: make ingest FILE=samples/x.pdf
+	@test -n "$(FILE)" || { echo "usage: make ingest FILE=path"; exit 1; }
+	$(DCDEV) --profile ingest exec -T worker python -m api.scripts.ingest_local "/storage/../$(FILE)"
+
+citation-check: ## Draw stored bboxes onto the pages: make citation-check DOC=<uuid>
+	@test -n "$(DOC)" || { echo "usage: make citation-check DOC=<document-id>"; exit 1; }
+	$(DCDEV) --profile ingest exec -T worker python -m api.scripts.citation_check $(DOC)
+	@echo "==> wrote docker/devdata/out/ — open the PNGs and check the boxes cover the right text"
+
+clean: ## Reclaim build cache and images orphaned by a rebuild
 	docker builder prune -af
 	docker image prune -f          # untagged only; never a tagged image
-
 	@df -h / | tail -1

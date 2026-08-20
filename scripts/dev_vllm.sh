@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Serve just the LLM directly on the host via uv — no Docker, no Postgres,
 # no gateway. For smoke-testing anything LLM-related (tool calling, prompts)
-# without paying for the full `make up` stack.
+# without paying for the full `make gpu` stack.
 #
 # Usage: scripts/dev_vllm.sh [GPU_INDEX] [MODEL_ID]
 set -euo pipefail

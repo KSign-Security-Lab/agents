@@ -6,6 +6,7 @@
 #    scripts/dev.sh deps       just Postgres/Redis (for running api in an IDE)
 #    scripts/dev.sh api        just api
 #    scripts/dev.sh web        just web
+#    scripts/dev.sh exec CMD…  one command in the same environment (make test etc.)
 #
 #  Everything GPU-bound stays on the GPU server; this only ever talks to it over
 #  LLM_BASE_URL / INFER_BASE_URL. Config is docker/.env.dev — one file.
@@ -71,11 +72,13 @@ VENV="$ROOT/.venv"
 STAMP="$VENV/.api-requirements.sha"
 ensure_venv() {
   local want
-  want="$(shasum -a 256 "$ROOT/docker/requirements/api.txt" | cut -d' ' -f1)"
+  want="$(cat "$ROOT/docker/requirements/api.txt" "$ROOT/docker/requirements/dev.txt" \
+          | shasum -a 256 | cut -d' ' -f1)"
   if [ ! -x "$VENV/bin/python" ] || [ "$(cat "$STAMP" 2>/dev/null || true)" != "$want" ]; then
-    step "installing api dependencies into .venv"
+    step "installing api + dev dependencies into .venv"
     uv venv --python 3.12 "$VENV"
-    VIRTUAL_ENV="$VENV" uv pip install -r "$ROOT/docker/requirements/api.txt"
+    VIRTUAL_ENV="$VENV" uv pip install -r "$ROOT/docker/requirements/api.txt" \
+                                      -r "$ROOT/docker/requirements/dev.txt"
     echo "$want" > "$STAMP"
   fi
 }
@@ -150,5 +153,11 @@ case "$TARGET" in
     step "starting api + web"
     start_api; start_web; banner; wait
     ;;
-  *) die "unknown target '$TARGET' (expected: all | deps | api | web)" ;;
+  exec)
+    shift
+    [ $# -gt 0 ] || die "usage: scripts/dev.sh exec <command> [args...]"
+    ensure_venv
+    run_py "$@"
+    ;;
+  *) die "unknown target '$TARGET' (expected: all | deps | api | web | exec)" ;;
 esac

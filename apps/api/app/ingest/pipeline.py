@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.app.config import settings

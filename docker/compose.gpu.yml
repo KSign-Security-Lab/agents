@@ -1,13 +1,19 @@
 # ---------------------------------------------------------------------------
-#  Agentic Document QA Platform — single-node stack
+#  GPU side: the two services that need CUDA, and nothing else.
 #
-#  GPU topology is chosen by LLM_MODE and realised with compose profiles.
-#  The application only ever knows LLM_BASE_URL (the gateway), never a replica.
-#    LLM_MODE=single -> profile llm-single : vllm-a
-#    LLM_MODE=tp2    -> profile llm-tp2    : vllm-tp  (model split over 2 GPUs)
-#    LLM_MODE=dp2    -> profile llm-dp2    : vllm-a + vllm-b (load split)
-#  Use the Makefile; it maps LLM_MODE onto COMPOSE_PROFILES for you.
+#  Start it with `make gpu`. Everything the application needs beyond this —
+#  Postgres, Redis, the ingest worker — is the dev side, docker/compose.dev.yml,
+#  started with `make dev`. The two are independent: run one, the other, or both
+#  on the same machine.
+#
+#  GPU topology is chosen by LLM_MODE and realised with compose profiles. The
+#  application only ever knows LLM_BASE_URL (the gateway), never a replica.
+#    single -> vllm-a                      1 GPU
+#    tp2    -> vllm-tp                     one model split over 2 GPUs
+#    dp2    -> vllm-a + vllm-b             load split, nginx least_conn
+#  `make gpu MODE=tp2` switches without touching application config.
 # ---------------------------------------------------------------------------
+name: agents-gpu
 
 x-gpu: &gpu
   # All GPUs are exposed to the container; CUDA_VISIBLE_DEVICES selects which
@@ -27,7 +33,7 @@ x-vllm: &vllm
   shm_size: "8gb"
   restart: unless-stopped
   volumes:
-    - ${MODEL_DIR:-./data/models/vllm}:/root/.cache/huggingface
+    - ${MODEL_DIR:-./gpudata/models/vllm}:/root/.cache/huggingface
   environment:
     HF_HOME: /root/.cache/huggingface
     HF_HUB_ENABLE_HF_TRANSFER: "1"
@@ -41,50 +47,6 @@ x-vllm: &vllm
   networks: [agents]
 
 services:
-  # ---------------------------------------------------------------- storage
-  postgres:
-    image: pgvector/pgvector:pg17       # needs pgvector >= 0.7 for sparsevec
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-agents}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-agents}
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
-    command:
-      - postgres
-      - -c
-      - max_connections=200
-      - -c
-      - shared_buffers=2GB
-      - -c
-      - work_mem=64MB
-      - -c
-      - maintenance_work_mem=1GB
-    volumes:
-      - ${DATA_ROOT:-./data}/postgres:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-8604}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agents} -d ${POSTGRES_DB:-agents}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    networks: [agents]
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
-    volumes:
-      - ${DATA_ROOT:-./data}/redis:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    networks: [agents]
-
-  # ------------------------------------------------------------ llm serving
   llm-gateway:
     image: nginx:alpine
     restart: unless-stopped
@@ -189,8 +151,8 @@ services:
       ASR_COMPUTE_TYPE: ${ASR_COMPUTE_TYPE:-int8_float16}
       ASR_LANGUAGE: ${ASR_LANGUAGE:-ko}
     volumes:
-      - ${INFER_MODEL_DIR:-./data/models/infer}:/models
-      - ${DATA_ROOT:-./data}/storage:/storage
+      - ${INFER_MODEL_DIR:-./gpudata/models/infer}:/models
+      - ${GPU_DATA_ROOT:-./gpudata}/storage:/storage
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${INFER_PORT:-8603}:8000"
     healthcheck:
@@ -201,72 +163,6 @@ services:
       start_period: 600s
     networks: [agents]
 
-  # ------------------------------------------------------------ application
-  api:
-    build:
-      context: ..
-      dockerfile: docker/api.Dockerfile
-    image: agents/api:dev
-    restart: unless-stopped
-    env_file: [.env]
-    environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agents}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agents}
-      REDIS_URL: redis://redis:6379/0
-      STORAGE_ROOT: /storage
-    volumes:
-      - ${DATA_ROOT:-./data}/storage:/storage
-      - ${DATA_ROOT:-./data}/out:/out
-    ports:
-      - "127.0.0.1:${API_PORT:-8601}:8000"
-    depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=5).status==200 else 1)\""]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
-    networks: [agents]
-
-  worker:
-    build:
-      context: ..
-      dockerfile: docker/base.Dockerfile
-      target: worker
-    image: agents/worker:dev
-    restart: unless-stopped
-    env_file: [.env]
-    environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agents}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agents}
-      REDIS_URL: redis://redis:6379/0
-      STORAGE_ROOT: /storage
-      HF_HOME: /models
-    volumes:
-      - ${DATA_ROOT:-./data}/storage:/storage
-      - ${INFER_MODEL_DIR:-./data/models/infer}:/models
-      - ${DATA_ROOT:-./data}/out:/out
-    depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
-    networks: [agents]
-
-  web:
-    build:
-      context: ..
-      dockerfile: docker/web.Dockerfile
-    image: agents/web:dev
-    restart: unless-stopped
-    env_file: [.env]
-    environment:
-      NODE_ENV: production
-      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
-    ports:
-      - "0.0.0.0:${WEB_PORT:-8600}:3000"
-    depends_on:
-      api: {condition: service_healthy}
-    networks: [agents]
-
 networks:
   agents:
-    name: agents
+    name: agents-gpu

@@ -7,7 +7,7 @@
 **/.venv
 **/.pytest_cache
 **/.ruff_cache
-data
+gpudata
 devdata
 .venv
 samples/*

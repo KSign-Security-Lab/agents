@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from api.app.config import settings
@@ -30,7 +30,7 @@ from api.app.ingest import convert
 from api.app.schemas import DocumentDetail, DocumentOut, PageOut, TopicOut, UserOut
 from api.app.services.queue import enqueue_ingest
 from api.app.services.realtime import realtime
-from api.app.services.storage import hash_and_store, shard_key, storage
+from api.app.services.storage import hash_and_store, storage
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 

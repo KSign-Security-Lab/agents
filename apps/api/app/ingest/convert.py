@@ -131,7 +131,6 @@ def _image_to_pdf(src: Path, out_dir: Path) -> Path:
     dst = out_dir / (src.stem + ".pdf")
     with pymupdf.open() as pdf:
         img = pymupdf.open(str(src))
-        rect = img[0].rect if img.is_pdf else pymupdf.Pixmap(str(src))
         if img.is_pdf:
             pdf.insert_pdf(img)
         else:

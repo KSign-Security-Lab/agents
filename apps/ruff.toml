@@ -1,0 +1,8 @@
+# ruff had never actually run: `make fmt` shelled into the api image, which
+# doesn't carry it. Now that it runs from the dev venv, this is its config.
+line-length = 100
+
+[lint.per-file-ignores]
+# `l, t, r, b` mirrors Docling's own BoundingBox attribute names (.l/.t/.r/.b).
+# Renaming would make the geometry code harder to check against the library.
+"api/app/ingest/extract.py" = ["E741"]

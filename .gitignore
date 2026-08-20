@@ -4,8 +4,8 @@ docker/.env.dev
 *.pem
 *.key
 
-# Runtime data (Postgres/Redis/storage) — DATA_ROOT default is ./data under docker/
-docker/data/
+# Runtime data, both sides. Defaults are relative to docker/.
+docker/gpudata/
 docker/devdata/
 
 # Generated sample documents (recreate with: make samples)
