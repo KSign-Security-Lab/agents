@@ -24,7 +24,7 @@ DCP := LLM_MODE=$(LLM_MODE) $(DC) --profile $(PROFILE)
         build-web migrate revision seed shell-api shell-worker psql redis-cli \
         llm-mode pull-models samples test test-citations citation-check \
         ingest eval fmt clean-images bootstrap \
-        dev dev-setup dev-down dev-reset dev-logs dev-psql serve-gpu
+        dev dev-setup dev-build dev-down dev-reset dev-logs dev-psql serve-gpu
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -43,6 +43,10 @@ dev-setup: ## Create docker/.env.dev from the example, then edit GPU_HOST
 
 dev: ## Start local dev: deps + migrate + seed + api and web with reload
 	bash scripts/dev.sh $(S)
+
+dev-build: ## Rebuild the dev worker image (only needed after a requirements/Dockerfile change)
+	INGEST=1 $(DCDEV) --profile ingest build worker
+	INGEST=1 $(DCDEV) --profile ingest up -d --wait
 
 dev-down: ## Stop the local dev containers (data preserved)
 	$(DCDEV) --profile ingest down
@@ -160,6 +164,8 @@ eval: ## Answer + citation accuracy on the Korean gold set
 fmt: ## Format and lint
 	$(DC) exec -T api sh -c "ruff check --fix api && ruff format api"
 
-clean-images: ## Reclaim docker build cache (safe: only rebuildable layers)
+clean-images: ## Reclaim build cache and images orphaned by a rebuild (safe: only rebuildable layers)
 	docker builder prune -af
+	docker image prune -f          # untagged only; never a tagged image
+
 	@df -h / | tail -1
