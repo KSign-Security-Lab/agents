@@ -85,6 +85,26 @@ Weights download on first start — ~30GB before the GPU is touched at all, whic
 is why `nvidia-smi` stays empty for a while. `make gpu-logs S=vllm-a` shows it;
 `make pull-models` fetches them ahead of time.
 
+#### "I set GPU 1, but it says GPU 0"
+
+That's `CUDA_VISIBLE_DEVICES` doing its job. Setting `VLLM_A_GPUS=1` exposes
+*only* physical GPU 1 to the process, and CUDA then renumbers it to index `0`.
+So vLLM, torch and `nvidia-smi` **inside** the container all say `0`, no matter
+which physical card it is. Logs can't tell you which GPU you got.
+
+Two places can:
+
+```bash
+make gpu-health          # CUDA_VISIBLE_DEVICES as the running containers have it
+nvidia-smi               # on the host — which physical card holds the memory
+```
+
+If `make gpu-health` disagrees with `docker/.env`, the container predates your
+edit. `docker restart` never re-reads compose config; only a recreate does, which
+is what `make gpu` does. Note also that `INFER_GPUS` defaults to `1` while
+`VLLM_A_GPUS` defaults to `0`, so the two land on different cards unless you set
+both.
+
 ### Dev side
 
 ```bash

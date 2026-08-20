@@ -64,7 +64,6 @@ services:
   vllm-a:
     <<: [*vllm, *gpu]
     profiles: ["llm-single", "llm-dp2"]
-    container_name: agents-vllm-a
     environment: &vllm_env_a
       CUDA_VISIBLE_DEVICES: ${VLLM_A_GPUS:-0}
       HF_HOME: /root/.cache/huggingface
@@ -93,7 +92,6 @@ services:
   vllm-b:
     <<: [*vllm, *gpu]
     profiles: ["llm-dp2"]
-    container_name: agents-vllm-b
     environment:
       <<: *vllm_env_a
       CUDA_VISIBLE_DEVICES: ${VLLM_B_GPUS:-1}
@@ -114,7 +112,6 @@ services:
   vllm-tp:
     <<: [*vllm, *gpu]
     profiles: ["llm-tp2"]
-    container_name: agents-vllm-tp
     shm_size: "16gb"
     environment:
       <<: *vllm_env_a
