@@ -136,13 +136,35 @@ make psql
 onto the rendered page so you can *see* whether highlights land on the right
 text. Numbers can be self-consistent and still point at the wrong line.
 
+### Fast local dev (no Docker)
+
+For iterating on one piece without standing up the whole stack:
+
+```bash
+pnpm install && pnpm dev        # apps/web via Turborepo (http://localhost:3000)
+scripts/dev_api.sh              # apps/api via uv+uvicorn --reload (needs Postgres/Redis/infer reachable)
+scripts/dev_infer.sh            # apps/infer via uv+uvicorn --reload (needs a CUDA torch on the host)
+scripts/dev_vllm.sh [GPU] [MODEL_ID]   # just the LLM via `vllm serve`, no gateway/DB at all
+```
+
+These are additive, not a replacement for `make up` — that's still the
+full/production-like path (real Postgres, real GPU serving, migrations).
+
 ## Layout
 
 ```
-api/      FastAPI + agent + ingest pipeline   (app/agent/citations.py is the core protocol)
-infer/    GPU sidecar: embeddings, reranking, ASR
-web/      Next.js UI
+apps/
+  api/    FastAPI + agent + ingest pipeline   (app/agent/citations.py is the core protocol)
+  infer/  GPU sidecar: embeddings, reranking, ASR
+  web/    Next.js UI
 docker/   compose, Dockerfiles, .env.example
-scripts/  setup and sample generation
+scripts/  setup, sample generation, and no-Docker dev scripts
 docs/     STATUS.md — what works, what remains
 ```
+
+`apps/*` is a pnpm workspace (`pnpm-workspace.yaml`, root `package.json`,
+`turbo.json`) — today that's just `apps/web`, since `api`/`infer` are Python
+and use `uv` directly against `docker/requirements/*.txt` rather than a
+parallel `pyproject.toml`. There's no separate `worker/` directory: the
+`worker` service is `apps/api/worker/`, built into a different image with a
+different `CMD`, not a distinct codebase.

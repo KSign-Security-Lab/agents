@@ -28,14 +28,15 @@ ENV PYTHONUNBUFFERED=1 \
 # The vllm image sets an entrypoint of its own; we run a plain uvicorn.
 ENTRYPOINT []
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 COPY docker/requirements/infer.txt /tmp/infer.txt
 # torch/transformers already ship in the base image, so they are excluded from
 # the resolve to stop pip replacing a working CUDA build with a PyPI one.
-RUN pip install -r /tmp/infer.txt \
+RUN uv pip install --system -r /tmp/infer.txt \
  && python3 -c "import torch; print('torch', torch.__version__); assert '+cu' in torch.__version__"
 
 WORKDIR /app
-COPY infer/ /app/infer/
+COPY apps/infer/ /app/infer/
 
 ENV HF_HOME=/models \
     HF_HUB_ENABLE_HF_TRANSFER=0 \
@@ -87,12 +88,13 @@ RUN mkdir -p /opt/hwp \
 ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
 RUN pip install --index-url "${TORCH_INDEX}" torch==2.9.1 torchvision==0.24.1
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 COPY docker/requirements/api.txt /tmp/api.txt
 COPY docker/requirements/worker.txt /tmp/worker.txt
-RUN pip install -r /tmp/worker.txt
+RUN uv pip install --system -r /tmp/worker.txt
 
 WORKDIR /app
-COPY api/ /app/api/
+COPY apps/api/ /app/api/
 
 # LibreOffice needs a writable HOME; docling and easyocr cache models under HF_HOME.
 ENV HOME=/tmp \

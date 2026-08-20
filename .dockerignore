@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/.next
+**/.turbo
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+data
+samples/*
+!samples/.gitkeep
