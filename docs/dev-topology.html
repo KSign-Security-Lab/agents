@@ -192,6 +192,16 @@
   pre .k { color: var(--loc); font-weight: 600; }
   .card-gpu pre .k { color: var(--gpu); }
 
+  /* ------------------------------------------------------------ roster */
+  .roster { display: flex; flex-direction: column; gap: 32px; }
+  .roster-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+  .roster-head h3 { font-family: var(--mono); font-size: 15px; font-weight: 600; margin: 0; }
+  .roster-head .note { font-size: 15px; color: var(--ink-2); }
+  .svc { font-family: var(--mono); font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .svc-gpu { color: var(--gpu); }
+  .svc-loc { color: var(--loc); }
+  .where { font-family: var(--mono); font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+
   /* ------------------------------------------------------------ tables */
   h2.section {
     font-family: var(--mono);
@@ -372,6 +382,97 @@
   </figure>
 
   <!-- ================================ commands ================================ -->
+  <section>
+    <h2 class="section">What each piece is</h2>
+    <div class="roster">
+
+      <div>
+        <div class="roster-head">
+          <span class="chip chip-gpu">make gpu</span>
+          <h3>docker/compose.gpu.yml</h3>
+          <span class="note">Two services, both needing CUDA — which is the entire reason they're not local.</span>
+        </div>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>Service</th><th>Runs as</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="svc svc-gpu">llm-gateway</span></td>
+                <td class="where">nginx · :8602</td>
+                <td>The one URL the application knows. Whether there's one replica behind it or
+                two is deployment config, so <code>LLM_MODE</code> can change without the app
+                noticing.</td>
+              </tr>
+              <tr>
+                <td><span class="svc svc-gpu">vllm</span></td>
+                <td class="where">container · :8000 internal</td>
+                <td>Serves <code>EXAONE-4.0-32B-AWQ</code>. Writes the answers and emits the tool
+                calls the agent's query planning depends on.</td>
+              </tr>
+              <tr>
+                <td><span class="svc svc-gpu">infer</span></td>
+                <td class="where">container · :8603</td>
+                <td>Three models in one VRAM budget: <strong>bge-m3</strong> embeds (one pass gives
+                both the dense vector and the sparse lexical weights, so hybrid search needs no
+                second model), <strong>bge-reranker-v2-m3</strong> rescores the shortlist, and
+                <strong>faster-whisper</strong> transcribes recordings.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <div class="roster-head">
+          <span class="chip chip-loc">make dev</span>
+          <h3>docker/compose.dev.yml + two host processes</h3>
+          <span class="note">Nothing here needs a GPU, so all of it runs on your laptop.</span>
+        </div>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>Service</th><th>Runs as</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="svc svc-loc">postgres</span></td>
+                <td class="where">container · :5433</td>
+                <td>pgvector. Documents, chunks, the branching message tree, and both vector
+                columns — <code>vector</code> for dense, <code>sparsevec</code> for lexical.
+                Also holds <code>chunk_spans</code>, the text-offset → page-rectangle map that
+                makes citations clickable.</td>
+              </tr>
+              <tr>
+                <td><span class="svc svc-loc">redis</span></td>
+                <td class="where">container · :6380</td>
+                <td>The ingest queue. <code>api</code> enqueues an upload; the worker consumes it.</td>
+              </tr>
+              <tr>
+                <td><span class="svc svc-loc">api</span></td>
+                <td class="where">host · :8000 · reloads</td>
+                <td>FastAPI + LangGraph: the agent, SSE streaming, citation resolution. Carries no
+                torch at all — every GPU call goes out over HTTP — which is why it runs on your
+                host instead of in a container.</td>
+              </tr>
+              <tr>
+                <td><span class="svc svc-loc">web</span></td>
+                <td class="where">host · :3000 · reloads</td>
+                <td>Next.js UI, and the proxy in front of it: the browser never sees the API, it
+                holds an httpOnly cookie and this tier attaches the token server-side.</td>
+              </tr>
+              <tr>
+                <td><span class="svc svc-loc">worker</span></td>
+                <td class="where">container · opt-in</td>
+                <td>convert → extract → chunk → embed → categorize. LibreOffice, H2Orestart for
+                HWP, PyMuPDF, OCR and ffmpeg are why this image is large, so it only starts with
+                <code>INGEST=1</code> — you need it to debug ingest, not to work on chat.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
   <section>
     <h2 class="section">What to run, on which machine</h2>
     <div class="cards">
