@@ -83,17 +83,21 @@ Then open `http://localhost:8600` (or whatever `WEB_PORT` you set).
 
 `make bootstrap` runs the whole sequence in order.
 
-### Everything machine-specific is in `docker/.env`
+### Configuration is only what you decide
 
-| Variable | What it controls |
+`docker/.env` carries twelve values, and `docker/.env.dev` carries one. Anything
+absent falls back to a default that lives next to the code it affects:
+
+| Where the default lives | What it covers |
 |---|---|
-| `DATA_ROOT` | Postgres data, uploaded files, Redis, logs |
-| `MODEL_DIR` / `INFER_MODEL_DIR` | Model weight caches |
-| `WEB_PORT`, `API_PORT`, `LLM_GATEWAY_PORT`, `INFER_PORT`, `POSTGRES_PORT` | Host ports |
-| `VLLM_A_GPUS`, `VLLM_B_GPUS`, `LLM_TP2_GPUS`, `INFER_GPUS` | CUDA device indices |
-| `MODEL_ID` | The served model |
+| `docker/compose.yml` — `${VAR:-default}` | paths, host ports, GPU indices, model ids, the vLLM flags |
+| `apps/api/app/config.py` — the `Settings` class | OCR, chunking, retrieval, agent and topic tuning, each next to the measurement that chose it |
+| `scripts/dev.sh` | the dev URLs, all derived from `GPU_HOST` |
 
-No paths, ports or device indices are hard-coded anywhere else.
+To override any `Settings` field, add it to `docker/.env` as `UPPER_CASE`.
+Nothing needs to be listed just to keep its default, and `DATABASE_URL` is
+composed from `POSTGRES_*` rather than spelled out, so the password lives in
+exactly one place.
 
 ### GPU topology
 

@@ -13,7 +13,6 @@ from pathlib import Path
 PLACEHOLDERS = {
     "POSTGRES_PASSWORD": "change-me-in-env",
     "INTERNAL_JWT_SECRET": "change-me-too",
-    "AUTH_SECRET": "change-me-three",
 }
 
 
@@ -29,14 +28,6 @@ def main() -> None:
         value = secrets.token_urlsafe(32 if key != "POSTGRES_PASSWORD" else 18)
         generated[key] = value
         text = re.sub(rf"^{key}=.*$", f"{key}={value}", text, count=1, flags=re.MULTILINE)
-
-    # DATABASE_URL embeds the password, so it has to follow it.
-    if "POSTGRES_PASSWORD" in generated:
-        text = re.sub(
-            r"^DATABASE_URL=postgresql\+psycopg://([^:]+):[^@]*@",
-            lambda m: f"DATABASE_URL=postgresql+psycopg://{m.group(1)}:{generated['POSTGRES_PASSWORD']}@",
-            text, count=1, flags=re.MULTILINE,
-        )
 
     path.write_text(text)
     if generated:

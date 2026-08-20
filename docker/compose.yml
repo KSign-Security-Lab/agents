@@ -27,7 +27,7 @@ x-vllm: &vllm
   shm_size: "8gb"
   restart: unless-stopped
   volumes:
-    - ${MODEL_DIR}:/root/.cache/huggingface
+    - ${MODEL_DIR:-./data/models/vllm}:/root/.cache/huggingface
   environment:
     HF_HOME: /root/.cache/huggingface
     HF_HUB_ENABLE_HF_TRANSFER: "1"
@@ -46,9 +46,9 @@ services:
     image: pgvector/pgvector:pg17       # needs pgvector >= 0.7 for sparsevec
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_USER: ${POSTGRES_USER:-agents}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_DB: ${POSTGRES_DB:-agents}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     command:
       - postgres
@@ -61,11 +61,11 @@ services:
       - -c
       - maintenance_work_mem=1GB
     volumes:
-      - ${DATA_ROOT}/postgres:/var/lib/postgresql/data
+      - ${DATA_ROOT:-./data}/postgres:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:${POSTGRES_PORT}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-8604}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agents} -d ${POSTGRES_DB:-agents}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
     volumes:
-      - ${DATA_ROOT}/redis:/data
+      - ${DATA_ROOT:-./data}/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -89,14 +89,14 @@ services:
     image: nginx:alpine
     restart: unless-stopped
     environment:
-      LLM_MODE: ${LLM_MODE}
+      LLM_MODE: ${LLM_MODE:-single}
     volumes:
       - ./nginx/llm-gateway.conf.tmpl:/etc/nginx/templates/llm.conf.tmpl:ro
       - ./nginx/entrypoint.sh:/docker-entrypoint.d/40-render-llm.sh:ro
     ports:
       # BIND_ADDR=0.0.0.0 publishes the gateway to the network so developers on
       # other machines can point LLM_BASE_URL here. Default stays loopback-only.
-      - "${BIND_ADDR:-127.0.0.1}:${LLM_GATEWAY_PORT}:80"
+      - "${BIND_ADDR:-127.0.0.1}:${LLM_GATEWAY_PORT:-8602}:80"
     networks: [agents]
 
   vllm-a:
@@ -104,16 +104,16 @@ services:
     profiles: ["llm-single", "llm-dp2"]
     container_name: agents-vllm-a
     environment: &vllm_env_a
-      CUDA_VISIBLE_DEVICES: ${VLLM_A_GPUS}
+      CUDA_VISIBLE_DEVICES: ${VLLM_A_GPUS:-0}
       HF_HOME: /root/.cache/huggingface
-      MODEL_ID: ${MODEL_ID}
-      SERVED_MODEL_NAME: ${SERVED_MODEL_NAME}
-      MAX_MODEL_LEN: ${MAX_MODEL_LEN}
-      GPU_MEMORY_UTILIZATION: ${GPU_MEMORY_UTILIZATION}
+      MODEL_ID: ${MODEL_ID:-LGAI-EXAONE/EXAONE-4.0-32B-AWQ}
+      SERVED_MODEL_NAME: ${SERVED_MODEL_NAME:-main}
+      MAX_MODEL_LEN: ${MAX_MODEL_LEN:-32768}
+      GPU_MEMORY_UTILIZATION: ${GPU_MEMORY_UTILIZATION:-0.62}
       STRUCTURED_OUTPUTS_CONFIG: ${STRUCTURED_OUTPUTS_CONFIG}
-      TOOL_CALL_PARSER: ${TOOL_CALL_PARSER}
-      REASONING_PARSER: ${REASONING_PARSER}
-      VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS}
+      TOOL_CALL_PARSER: ${TOOL_CALL_PARSER:-hermes}
+      REASONING_PARSER: ${REASONING_PARSER:-}
+      VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS:-}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -134,7 +134,7 @@ services:
     container_name: agents-vllm-b
     environment:
       <<: *vllm_env_a
-      CUDA_VISIBLE_DEVICES: ${VLLM_B_GPUS}
+      CUDA_VISIBLE_DEVICES: ${VLLM_B_GPUS:-1}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -156,7 +156,7 @@ services:
     shm_size: "16gb"
     environment:
       <<: *vllm_env_a
-      CUDA_VISIBLE_DEVICES: ${LLM_TP2_GPUS}
+      CUDA_VISIBLE_DEVICES: ${LLM_TP2_GPUS:-0,1}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -181,18 +181,18 @@ services:
     image: agents/infer:dev
     restart: unless-stopped
     environment:
-      CUDA_VISIBLE_DEVICES: ${INFER_GPUS}
+      CUDA_VISIBLE_DEVICES: ${INFER_GPUS:-1}
       HF_HOME: /models
-      EMBED_MODEL: ${EMBED_MODEL}
-      RERANK_MODEL: ${RERANK_MODEL}
-      ASR_MODEL: ${ASR_MODEL}
-      ASR_COMPUTE_TYPE: ${ASR_COMPUTE_TYPE}
-      ASR_LANGUAGE: ${ASR_LANGUAGE}
+      EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-m3}
+      RERANK_MODEL: ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
+      ASR_MODEL: ${ASR_MODEL:-large-v3}
+      ASR_COMPUTE_TYPE: ${ASR_COMPUTE_TYPE:-int8_float16}
+      ASR_LANGUAGE: ${ASR_LANGUAGE:-ko}
     volumes:
-      - ${INFER_MODEL_DIR}:/models
-      - ${DATA_ROOT}/storage:/storage
+      - ${INFER_MODEL_DIR:-./data/models/infer}:/models
+      - ${DATA_ROOT:-./data}/storage:/storage
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:${INFER_PORT}:8000"
+      - "${BIND_ADDR:-127.0.0.1}:${INFER_PORT:-8603}:8000"
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=5).status==200 else 1)\""]
       interval: 15s
@@ -210,12 +210,14 @@ services:
     restart: unless-stopped
     env_file: [.env]
     environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agents}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agents}
+      REDIS_URL: redis://redis:6379/0
       STORAGE_ROOT: /storage
     volumes:
-      - ${DATA_ROOT}/storage:/storage
-      - ${DATA_ROOT}/out:/out
+      - ${DATA_ROOT:-./data}/storage:/storage
+      - ${DATA_ROOT:-./data}/out:/out
     ports:
-      - "127.0.0.1:${API_PORT}:8000"
+      - "127.0.0.1:${API_PORT:-8601}:8000"
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -236,12 +238,14 @@ services:
     restart: unless-stopped
     env_file: [.env]
     environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agents}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agents}
+      REDIS_URL: redis://redis:6379/0
       STORAGE_ROOT: /storage
       HF_HOME: /models
     volumes:
-      - ${DATA_ROOT}/storage:/storage
-      - ${INFER_MODEL_DIR}:/models
-      - ${DATA_ROOT}/out:/out
+      - ${DATA_ROOT:-./data}/storage:/storage
+      - ${INFER_MODEL_DIR:-./data/models/infer}:/models
+      - ${DATA_ROOT:-./data}/out:/out
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -256,9 +260,9 @@ services:
     env_file: [.env]
     environment:
       NODE_ENV: production
-      API_INTERNAL_URL: ${API_INTERNAL_URL}
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
     ports:
-      - "0.0.0.0:${WEB_PORT}:3000"
+      - "0.0.0.0:${WEB_PORT:-8600}:3000"
     depends_on:
       api: {condition: service_healthy}
     networks: [agents]

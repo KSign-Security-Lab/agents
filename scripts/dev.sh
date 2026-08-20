@@ -23,14 +23,34 @@ step() { printf '\n\033[36m==> %s\033[0m\n' "$*"; }
 [ -f "$ENV_FILE" ] || die "$ENV_FILE not found. Run: make dev-setup"
 command -v uv >/dev/null || die "uv not found. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"
 
-# Sourced, not passed to compose as --env-file: bash expands the ${GPU_HOST}
-# references in the file, and compose interpolates from the environment anyway.
+# Sourced, not passed to compose as --env-file: compose interpolates from the
+# environment anyway, and the derivations below need shell expansion.
 set -a; . "$ENV_FILE"; set +a
+
+# Derived, so docker/.env.dev only has to name GPU_HOST. Anything already set
+# there wins, which is what makes every line in that file an override.
+GPU_HOST="${GPU_HOST:-localhost}"
+export LLM_BASE_URL="${LLM_BASE_URL:-http://$GPU_HOST:8602/v1}"
+export INFER_BASE_URL="${INFER_BASE_URL:-http://$GPU_HOST:8603}"
+export POSTGRES_USER="${POSTGRES_USER:-agents}"
+export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-agents}"
+export POSTGRES_DB="${POSTGRES_DB:-agents}"
+export POSTGRES_PORT="${POSTGRES_PORT:-5433}"
+export REDIS_PORT="${REDIS_PORT:-6380}"
+export DEV_DATA_ROOT="${DEV_DATA_ROOT:-./devdata}"
+export API_PORT="${API_PORT:-8000}"
+export WEB_PORT="${WEB_PORT:-3000}"
+export ADMIN_EMAIL="${ADMIN_EMAIL:-dev@agents.dev}"
+export ADMIN_PASSWORD="${ADMIN_PASSWORD:-devdev}"
+
+# The app reads these; both point at the containers this script starts.
+export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$POSTGRES_PORT/$POSTGRES_DB}"
+export REDIS_URL="${REDIS_URL:-redis://localhost:$REDIS_PORT/0}"
 
 # api and the worker container must agree on where uploads live: the worker's
 # /storage is this directory bind-mounted.
 export STORAGE_ROOT="${STORAGE_ROOT:-$ROOT/docker/${DEV_DATA_ROOT#./}/storage}"
-export API_INTERNAL_URL="http://localhost:${API_PORT:-8000}"
+export API_INTERNAL_URL="http://localhost:$API_PORT"
 mkdir -p "$STORAGE_ROOT"
 
 # ------------------------------------------------------------------ deps
@@ -89,18 +109,18 @@ cleanup() {
 }
 
 start_api() {
-  run_py uvicorn api.app.main:app --reload --port "${API_PORT:-8000}" &
+  run_py uvicorn api.app.main:app --reload --port "$API_PORT" &
   PIDS+=($!)
 }
 start_web() {
-  (cd "$ROOT/apps/web" && PATH="$ROOT/node_modules/.bin:$PATH" pnpm dev --port "${WEB_PORT:-3000}") &
+  (cd "$ROOT/apps/web" && PATH="$ROOT/node_modules/.bin:$PATH" pnpm dev --port "$WEB_PORT") &
   PIDS+=($!)
 }
 
 banner() {
   cat <<EOF
 
-  web    http://localhost:${WEB_PORT:-3000}   (login: ${ADMIN_EMAIL:-dev@agents.dev} / ${ADMIN_PASSWORD:-devdev})
+  web    http://localhost:${WEB_PORT}   (login: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD})
   api    http://localhost:${API_PORT:-8000}/docs
   llm    ${LLM_BASE_URL}
   infer  ${INFER_BASE_URL}
