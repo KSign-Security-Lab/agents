@@ -2,29 +2,27 @@
 # Render the vLLM upstream from the active compose profiles. Runs from nginx's
 # /docker-entrypoint.d/ before the server starts.
 #
-# single / tp2 have exactly one backend, so they use a variable proxy_pass:
-#   nginx then resolves the name per request and will start even while the
-#   replica is still loading, instead of dying with "host not found in upstream".
-# dp2 needs real load balancing, which requires a static upstream block; both
-#   replicas are created together by the compose profile, so the names resolve.
+# One backend uses a variable proxy_pass: nginx then resolves the name per
+#   request and starts even while the replica is still loading its weights,
+#   instead of dying with "host not found in upstream".
+# Two needs real load balancing, which requires a static upstream block; both
+#   replicas are created together by the profile, so the names resolve.
 set -eu
 
 # Derived from the active compose profiles rather than a second LLM_MODE knob:
 # one place to say what this machine serves, nothing to keep in step.
 case ",${COMPOSE_PROFILES:-}," in
-  *,llm-dp2,*) MODE=dp2 ;;
-  *,llm-tp2,*) MODE=tp2 ;;
-  *)           MODE=single ;;
+  *,replica2,*) MODE=replica2 ;;
+  *)            MODE=single ;;
 esac
 
 case "$MODE" in
-  single|tp2)
-    [ "$MODE" = single ] && BACKEND="vllm-a:8000" || BACKEND="vllm-tp:8000"
+  single)
     UPSTREAM_BLOCK="# single backend: resolved per request via the resolver directive"
-    PROXY_TARGET="        set \$vllm_backend \"$BACKEND\";
+    PROXY_TARGET="        set \$vllm_backend \"vllm-a:8000\";
         proxy_pass http://\$vllm_backend;"
     ;;
-  dp2)
+  replica2)
     UPSTREAM_BLOCK="upstream vllm_pool {
     least_conn;
     server vllm-a:8000 max_fails=3 fail_timeout=30s;

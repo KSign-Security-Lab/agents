@@ -59,21 +59,36 @@ One `compose.yaml`, one `.env`, and plain compose commands:
 
 ```bash
 cp .env.example .env
-$EDITOR .env             # set COMPOSE_PROFILES — that's what this machine runs
+$EDITOR .env             # set COMPOSE_PROFILES — what this machine runs
 docker compose up -d
 ```
 
-`COMPOSE_PROFILES` is the only structural decision, and compose reads it straight
-out of `.env`, so there are no `-f` or `--profile` flags to remember:
+There are four profiles. You never have to guess which — compose lists them:
 
-| `COMPOSE_PROFILES=` | Starts | For |
+```bash
+docker compose config --profiles     # every profile this file defines
+docker compose config --services     # what your .env starts right now
+make help                            # prints both, plus the host-side tasks
+```
+
+| Profile | Starts | Add it when |
 |---|---|---|
-| `gpu,llm-single` | llm-gateway, infer, vllm-a | a GPU server, one replica |
-| `gpu,llm-tp2` | llm-gateway, infer, vllm-tp | one model split across two GPUs |
-| `gpu,llm-dp2` | llm-gateway, infer, vllm-a, vllm-b | two replicas, load split |
-| `dev` | postgres, redis | a developer's machine |
-| `dev,ingest` | ...plus worker | debugging ingest |
-| `gpu,llm-single,dev` | all of the above | both roles on one box |
+| `dev` | postgres, redis | you're developing — this is the default in `.env.example` |
+| `gpu` | llm-gateway, vllm-a, infer | the machine has CUDA and serves the models |
+| `ingest` | worker | you're debugging ingest (big image: LibreOffice, OCR, ffmpeg) |
+| `replica2` | a second vllm | you have a spare GPU and want the load split |
+
+Combine with commas — `dev,ingest`, or `gpu,dev` for both roles on one box. You
+can also skip `.env` entirely and name services, which activates their profile on
+the spot: `docker compose up -d postgres redis`.
+
+**Tensor parallel is not a profile.** To split one model across two cards, give
+`vllm` both and tell it to split them:
+
+```bash
+VLLM_A_GPUS=0,1
+TENSOR_PARALLEL=2
+```
 
 Everything else is normal compose — `docker compose down`, `ps`,
 `logs -f vllm-a`, `exec postgres psql -U agents`, `restart infer`.

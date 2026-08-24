@@ -18,7 +18,9 @@ PY := bash scripts/dev.sh exec
 
 help: ## Show this help
 	@echo "  Containers:  docker compose up -d | down | ps | logs -f <service>"
-	@echo "               what runs is COMPOSE_PROFILES in .env"
+	@echo "               COMPOSE_PROFILES in .env selects what runs; this file defines:"
+	@printf "                 %s\n" $$(docker compose config --profiles 2>/dev/null)
+	@echo "               active now: $$(docker compose config --services 2>/dev/null | tr '\n' ' ')"
 	@echo
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n",$$1,$$2}'

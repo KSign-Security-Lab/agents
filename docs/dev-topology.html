@@ -389,7 +389,7 @@
       <div>
         <div class="roster-head">
           <span class="chip chip-gpu">gpu</span>
-          <h3>COMPOSE_PROFILES=gpu,llm-single</h3>
+          <h3>COMPOSE_PROFILES=gpu</h3>
           <span class="note">Two services, both needing CUDA — which is the entire reason they're not local.</span>
         </div>
         <div class="tbl">
@@ -483,13 +483,14 @@
         <div>
           <p class="step">First time</p>
 <pre>cp .env.example .env
-$EDITOR .env    <span class="c"># COMPOSE_PROFILES=gpu,llm-single</span>
+$EDITOR .env    <span class="c"># COMPOSE_PROFILES=gpu</span>
                 <span class="c"># VLLM_A_GPUS, BIND_ADDR</span></pre>
         </div>
         <div>
           <p class="step">Serve it</p>
 <pre>docker compose up -d
-docker compose logs -f vllm-a</pre>
+docker compose logs -f vllm-a
+docker compose config --profiles  <span class="c"># what else exists</span></pre>
         </div>
         <p class="who">No Postgres, no Redis, no web, no worker on this box — the <span class="inline">gpu</span> profile
         selects only these services out of <span class="inline">compose.yaml</span>.</p>
