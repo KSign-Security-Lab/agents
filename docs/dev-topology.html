@@ -361,7 +361,7 @@
         <text class="svg-sub" x="764" y="285">EXAONE-4.0-32B-AWQ</text>
 
         <line class="flow" x1="860" y1="203" x2="860" y2="238" marker-end="url(#ah)"></line>
-        <text class="svg-edge" x="870" y="225">LLM_MODE</text>
+        <text class="svg-edge" x="870" y="225">proxy_pass</text>
 
         <rect class="node" x="748" y="352" width="224" height="76" rx="6"></rect>
         <text class="svg-title" x="764" y="377">infer</text>
@@ -501,7 +501,7 @@
         <div class="roster-head">
           <span class="chip chip-gpu">gpu</span>
           <h3>COMPOSE_PROFILES=gpu</h3>
-          <span class="note">Two services, both needing CUDA — which is the entire reason they're not local.</span>
+          <span class="note">Three services. <code>vllm</code> and <code>infer</code> are the two that need CUDA, which is the entire reason this profile isn't local.</span>
         </div>
         <div class="tbl">
           <table>
@@ -511,8 +511,8 @@
                 <td><span class="svc svc-gpu">llm-gateway</span></td>
                 <td class="where">nginx · :8602</td>
                 <td>The one URL the application knows. Whether there's one replica behind it or
-                two is deployment config, so <code>LLM_MODE</code> can change without the app
-                noticing.</td>
+                two is deployment config: adding the <code>replica2</code> profile puts a second
+                replica behind it without the application noticing.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-gpu">vllm</span></td>
@@ -648,7 +648,7 @@ pnpm dev</pre>
           </tr>
           <tr>
             <td><code>pnpm up</code></td>
-            <td>containers only, migrated and seeded</td>
+            <td>postgres + redis only</td>
             <td>you want to launch <code>api</code> from your IDE — point it at <code>.venv/bin/python</code>, working dir <code>apps/</code></td>
           </tr>
           <tr>
