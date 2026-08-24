@@ -337,7 +337,7 @@
 
         <rect class="node-opt" x="176" y="386" width="418" height="52" rx="6"></rect>
         <text class="svg-title" x="192" y="410">worker</text>
-        <text class="svg-sub" x="192" y="428">only with INGEST=1 · LibreOffice · OCR · ffmpeg</text>
+        <text class="svg-sub" x="192" y="428">opt-in · LibreOffice · OCR · ffmpeg</text>
 
         <polyline class="flow" points="504,207 504,238 281,238 281,298" marker-end="url(#ah)"></polyline>
         <text class="svg-edge" x="380" y="231" text-anchor="middle">SQL + vectors</text>
@@ -463,7 +463,7 @@
                 <td class="where">container · opt-in</td>
                 <td>convert → extract → chunk → embed → categorize. LibreOffice, H2Orestart for
                 HWP, PyMuPDF, OCR and ffmpeg are why this image is large, so it only starts with
-                <code>INGEST=1</code> — you need it to debug ingest, not to work on chat.</td>
+                <code>docker compose up -d worker</code> — you need it to debug ingest, not to work on chat.</td>
               </tr>
             </tbody>
           </table>
@@ -510,7 +510,8 @@ $EDITOR .env    <span class="c"># COMPOSE_PROFILES=dev, GPU_HOST</span></pre>
 ssh -N -L 8602:localhost:8602 \
        -L 8603:localhost:8603 gpu-host
 
-./dev</pre>
+pnpm install &amp;&amp; pnpm venv
+pnpm dev</pre>
         </div>
         <p class="who">Starts the containers, migrates, seeds <span class="inline">dev@agents.dev / devdev</span>,
         then runs <span class="inline">api</span> and <span class="inline">web</span> with reload. Ctrl-C stops
@@ -530,27 +531,27 @@ ssh -N -L 8602:localhost:8602 \
         </thead>
         <tbody>
           <tr>
-            <td><code>./dev</code></td>
+            <td><code>pnpm dev</code></td>
             <td>containers + api + web</td>
             <td>the normal case</td>
           </tr>
           <tr>
-            <td><code>./dev deps</code></td>
+            <td><code>pnpm up</code></td>
             <td>containers only, migrated and seeded</td>
             <td>you want to launch <code>api</code> from your IDE — point it at <code>.venv/bin/python</code>, working dir <code>apps/</code></td>
           </tr>
           <tr>
-            <td><code>./dev api</code></td>
+            <td><code>pnpm api</code></td>
             <td>just api</td>
             <td>two terminals, or web is already running</td>
           </tr>
           <tr>
-            <td><code>./dev web</code></td>
+            <td><code>pnpm web</code></td>
             <td>just web</td>
             <td>frontend-only work</td>
           </tr>
           <tr>
-            <td><code>INGEST=1 ./dev</code></td>
+            <td><code>docker compose up -d worker</code></td>
             <td>the above, plus the <code>worker</code> container</td>
             <td>you're touching ingest — it's a big image, so it stays opt-in</td>
           </tr>
@@ -594,7 +595,8 @@ ssh -N -L 8602:localhost:8602 \
 
   <footer>
     Config is one file: <code>.env</code> at the repo root, copied from <code>.env.example</code>.
-    Compose reads it, and so does <code>./dev</code>.
+    Compose reads it, and so does <code>apps/api/app/config.py</code>, which assembles the
+    database and model URLs from it.
   </footer>
 
 </div>

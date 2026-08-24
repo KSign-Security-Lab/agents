@@ -2,12 +2,27 @@
   "name": "agents",
   "private": true,
   "packageManager": "pnpm@9.15.0",
-  "devDependencies": {
-    "turbo": "^2.3.0"
-  },
+  "comment": "Every task is here, spelled out. `pnpm run` with no arguments lists them. Python tasks run from apps/ because api/__init__.py makes 'api' the importable package name and Python resolves it from the parent directory — which is also what alembic.ini's script_location assumes. The interpreter is the .venv that `pnpm venv` builds; URLs and ports come from .env via apps/api/app/config.py, not from here.",
   "scripts": {
-    "dev": "turbo run dev",
+    "venv": "uv venv .venv && uv pip install --python .venv/bin/python -r docker/requirements/api.txt -r docker/requirements/dev.txt",
+    "up": "docker compose up -d --wait postgres redis",
+    "down": "docker compose down",
+    "dev": "pnpm up && pnpm migrate && pnpm seed && concurrently -n api,web -c cyan,magenta \"pnpm api\" \"pnpm web\"",
+    "api": "cd apps && PYTHONPATH=. ../.venv/bin/uvicorn api.app.main:app --reload --port ${API_PORT:-8000}",
+    "web": "pnpm -F agents-web dev",
+    "migrate": "cd apps && PYTHONPATH=. ../.venv/bin/alembic -c api/alembic.ini upgrade head",
+    "revision": "cd apps && PYTHONPATH=. ../.venv/bin/alembic -c api/alembic.ini revision --autogenerate -m",
+    "seed": "cd apps && PYTHONPATH=. ../.venv/bin/python -m api.scripts.seed",
+    "test": "cd apps && PYTHONPATH=. ../.venv/bin/pytest api/tests -q",
+    "lint": "cd apps && ../.venv/bin/ruff check --fix api",
+    "eval": "cd apps && PYTHONPATH=. ../.venv/bin/python -m api.scripts.run_eval",
     "build": "turbo run build",
-    "lint": "turbo run lint"
+    "samples": "docker compose run --rm --no-deps -v \"$PWD:/work\" -w /work worker python scripts/make_samples.py samples",
+    "ingest": "docker compose up -d --wait worker && docker compose exec -T worker python -m api.scripts.ingest_local",
+    "bboxes": "docker compose up -d --wait worker && docker compose exec -T worker python -m api.scripts.citation_check"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.4",
+    "turbo": "^2.10.11"
   }
 }

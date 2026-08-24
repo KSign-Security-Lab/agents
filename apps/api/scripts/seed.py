@@ -1,26 +1,24 @@
-"""Create the first admin account.
+"""Create the first admin account from ADMIN_EMAIL / ADMIN_PASSWORD.
 
-Idempotent: running it again updates the password rather than failing, which is
+Idempotent: running it again resets the password rather than failing, which is
 also how you recover a forgotten one.
 """
 from __future__ import annotations
 
 import asyncio
-import os
-import secrets
 
 from sqlalchemy import select
 
+from api.app.config import settings
 from api.app.db.models import User, UserRole
 from api.app.db.session import SessionLocal
 from api.app.services.security import hash_password
 
 
 async def main() -> None:
-    email = (os.environ.get("ADMIN_EMAIL") or "keonoh@ksign.com").lower()
-    name = os.environ.get("ADMIN_NAME") or "관리자"
-    password = os.environ.get("ADMIN_PASSWORD") or secrets.token_urlsafe(12)
-    generated = "ADMIN_PASSWORD" not in os.environ
+    email = settings.admin_email.lower()
+    name = settings.admin_name
+    password = settings.admin_password
 
     async with SessionLocal() as db:
         user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
@@ -36,10 +34,7 @@ async def main() -> None:
             action = "updated"
         await db.commit()
 
-    print(f"admin {action}: {email}")
-    if generated:
-        print(f"password: {password}")
-        print("(set ADMIN_PASSWORD to choose your own)")
+    print(f"admin {action}: {email} / {password}")
 
 
 if __name__ == "__main__":

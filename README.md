@@ -103,8 +103,8 @@ Everything else is normal compose — `docker compose down`, `ps`,
 ```
 
 `api` and `web` are deliberately **not** in compose: they're what you edit, so
-they run on the host under a reloader. That, plus the code tasks, is the one
-script in this repo — `./dev`. Everything else is compose.
+they run on the host under a reloader. There are no shell scripts — those two,
+and every task, are `package.json` entries. `pnpm run` lists them all.
 
 ### On a GPU server
 
@@ -117,8 +117,8 @@ docker compose logs -f vllm-a
 ```
 
 Weights download on first start — ~30GB before the GPU is touched at all, which
-is why `nvidia-smi` stays empty for a while. `scripts/pull_models.sh` fetches
-them ahead of time.
+is why `nvidia-smi` stays empty for a while. There is nothing to pre-fetch with —
+`docker compose logs -f vllm-a` is how you watch it.
 
 #### "I set GPU 1, but it says GPU 0"
 
@@ -142,13 +142,14 @@ on different cards unless you set both.
 ```bash
 cp .env.example .env      # ships with COMPOSE_PROFILES=dev
 $EDITOR .env              # set GPU_HOST
-./dev
+pnpm install && pnpm venv # node deps, then the python .venv
+pnpm dev
 ```
 
-`./dev` starts postgres and redis, applies migrations, seeds the admin, then runs
-`api` and `web` with reload and prints the URLs and login. Ctrl-C stops the two
-host processes and leaves the containers up, so the next run takes seconds.
-`./dev help` lists the rest.
+`pnpm dev` starts postgres and redis, migrates, seeds the admin, then runs `api`
+and `web` together with reload. Ctrl-C stops both and leaves the containers up,
+so the next run takes seconds. Re-run `pnpm venv` when
+`docker/requirements/*.txt` changes; nothing detects that for you.
 
 If the GPU box keeps its ports on loopback (the default — neither `vllm` nor
 `infer` authenticates), tunnel to it and leave `GPU_HOST=localhost`:
@@ -159,29 +160,29 @@ ssh -N -L 8602:localhost:8602 -L 8603:localhost:8603 <gpu-host>
 
 | | |
 |---|---|
-| `./dev deps` | containers only — then run `api` from your IDE against `.venv/bin/python`, working dir `apps/` |
-| `./dev api` / `./dev web` | one process, for two terminals |
-| `INGEST=1 ./dev` | also start the `worker` container (LibreOffice/OCR/ffmpeg — big image, only for ingest work) |
+| `pnpm up` | just the containers — then run `api` from your IDE against `.venv/bin/python`, working dir `apps/` |
+| `pnpm api` / `pnpm web` | one process, for two terminals |
+| `docker compose up -d worker` | add the ingest worker (LibreOffice/OCR/ffmpeg — big image, only for ingest work) |
 
 [**docs/dev-topology.html**](docs/dev-topology.html) draws all of it — what each
 service is, which profile starts it, and every port.
 
 ### Working on the code
 
-Against the dev containers, using the `.venv` that `./dev` creates:
+Against the dev containers, using the `.venv` that `pnpm venv` builds. `pnpm run`
+prints this list from `package.json`, so it can't go stale:
 
 ```bash
-./dev test                    # 72 unit tests
-./dev fmt                     # ruff, config in apps/ruff.toml
-./dev migrate                 # ./dev revision "add x" to generate one
-./dev eval                    # answer + citation accuracy on the Korean gold set
-./dev samples                 # Korean test documents (uses the worker image)
-./dev ingest samples/2026_공급계약서.pdf
-./dev bboxes <document-id>
-./dev exec pytest api/tests/test_citations.py -x    # anything else
+pnpm test                     # 72 unit tests
+pnpm lint                     # ruff, config in apps/ruff.toml
+pnpm migrate                  # pnpm revision "add x" to generate one
+pnpm eval                     # answer + citation accuracy on the Korean gold set
+pnpm samples                  # Korean test documents (uses the worker image)
+pnpm ingest samples/2026_공급계약서.pdf
+pnpm bboxes <document-id>
 ```
 
-`./dev bboxes` is the important one: it draws every stored bounding box
+`pnpm bboxes` is the important one: it draws every stored bounding box
 onto the rendered page so you can *see* whether highlights land on the right
 text. Numbers can be self-consistent and still point at the wrong line.
 
@@ -194,7 +195,8 @@ back to a default that lives next to the code it affects:
 |---|---|
 | `compose.yaml` — `${VAR:-default}` | paths, ports, GPU indices, model ids, vLLM flags |
 | `apps/api/app/config.py` — the `Settings` class | OCR, chunking, retrieval, agent and topic tuning, each beside the measurement that chose it |
-| `./dev` | every dev URL, derived from `GPU_HOST` |
+| `package.json` — the `scripts` block | every command; `pnpm run` prints it |
+| `apps/api/app/config.py` — the `_assemble` validator | `DATABASE_URL`, `REDIS_URL`, `LLM_BASE_URL`, `INFER_BASE_URL`, built from the ports and `GPU_HOST` so they can't disagree |
 
 To override any `Settings` field, add it to `.env` as `UPPER_CASE`.
 
@@ -223,13 +225,13 @@ Guided JSON remains the fallback for a model with no usable tool-call parser.
 
 ```
 compose.yaml   every container, selected by COMPOSE_PROFILES in .env
-dev            the host processes and code tasks — ./dev help
+package.json   every task — pnpm run
 apps/
   api/    FastAPI + agent + ingest pipeline   (app/agent/citations.py is the core protocol)
   infer/  GPU sidecar: embeddings, reranking, ASR
   web/    Next.js UI
 docker/   base.Dockerfile, nginx gateway template, requirements
-scripts/  model download, sample generation
+scripts/  make_samples.py, run inside the worker image
 docs/     STATUS.md — what works, what remains; dev-topology.html — the two-machine dev split
 ```
 

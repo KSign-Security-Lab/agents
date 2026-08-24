@@ -56,7 +56,7 @@ Ran end to end for PDF, docx, odt, plain text, image, and scanned PDF:
 - Full agent turn: plan → 4 parallel sub-agents → merge → answer with inline
   citations, ~13s
 - **Highlights visually confirmed** to land on the correct text — verified by
-  rendering stored geometry back onto the page (`./dev bboxes`), for both
+  rendering stored geometry back onto the page (`pnpm bboxes`), for both
   native-text PDFs and OCR'd scans
 - Sentence-level narrowing works: within a two-line paragraph only the line
   containing the answer is highlighted
@@ -97,7 +97,7 @@ bar every "Verified working" entry already met.
   Hermes parser** — only the forced-single-function path (`complete_json`)
   has ever actually run against the served model; `tool_choice="auto"` with
   multiple tools is a genuinely different request shape.
-- **Eval harness** (`./dev eval`) — `api/scripts/run_eval.py` plus a 10-case
+- **Eval harness** (`pnpm eval`) — `api/scripts/run_eval.py` plus a 10-case
   gold set derived and cross-checked against `scripts/make_samples.py`'s own
   generated contract text. **Never actually run** — needs a live stack with
   the sample documents ingested.
@@ -176,13 +176,13 @@ Recorded because each was invisible until a specific test forced it out.
 
 ## Suggested order on a new machine
 
-1. `docker compose up -d` and `./dev`, then confirm `./dev test` passes and `/ready` reports all
+1. `docker compose up -d` and `pnpm dev`, then confirm `pnpm test` passes and `/ready` reports all
    three dependencies healthy.
-2. `./dev samples && ./dev ingest samples/...`, then `./dev bboxes` and
+2. `pnpm samples && pnpm ingest samples/...`, then `pnpm bboxes` and
    **look at the PNGs**. If highlights are off, nothing downstream matters.
 3. Ingest a handful of your own real documents — especially **.hwp files and a
    recording**, the two untested paths.
-4. `./dev eval` — the gold set and harness already exist; this is the first
+4. `pnpm eval` — the gold set and harness already exist; this is the first
    time it will actually run against a live model.
 5. Ask a question that plausibly needs a hedge/citation fix, and a question
    over a table (e.g. the payment-schedule table in the sample supply

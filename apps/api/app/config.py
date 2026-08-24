@@ -1,26 +1,56 @@
-"""Central settings. Every value is overridable by environment variable so the
-same image runs in any topology (see docker/.env.example)."""
+"""Central settings, and the single place URLs are assembled.
+
+Defaults describe a developer's machine: api and web run on the host, Postgres
+and Redis are the containers `docker compose up -d` starts, and the models are
+served by GPU_HOST. A container needing different values (the ingest worker
+reaching Postgres as a sibling) gets them from compose.yaml, and an explicit
+environment variable always beats anything derived here.
+
+The composite URLs are built rather than configured: setting POSTGRES_PORT alone
+used to leave DATABASE_URL on the old port, so the two could silently disagree.
+"""
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# apps/api/app/config.py -> apps/api -> apps -> repo root
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
+    # One .env at the repo root, the same file docker compose reads. Absolute, so
+    # it resolves whichever directory a command is run from.
+    model_config = SettingsConfigDict(env_file=REPO_ROOT / ".env", extra="ignore",
+                                      case_sensitive=False)
+
+    # ---- where things live ----------------------------------------------
+    # The machine serving the models; the LLM and infer URLs are built from it.
+    gpu_host: str = "localhost"
+    llm_gateway_port: int = 8602
+    infer_port: int = 8603
+    postgres_user: str = "agents"
+    postgres_password: str = "agents"
+    postgres_db: str = "agents"
+    postgres_port: int = 5433
+    redis_port: int = 6380
+    data_root: str = ""            # "" -> <repo>/data
 
     # ---- storage ---------------------------------------------------------
-    storage_root: str = "/storage"
+    storage_root: str = ""         # "" -> <data_root>/storage
     max_upload_mb: int = 512
 
     # ---- database / cache ------------------------------------------------
-    database_url: str = "postgresql+psycopg://agents:agents@postgres:5432/agents"
-    redis_url: str = "redis://redis:6379/0"
+    # "" on any of these four means "assemble it from the parts above".
+    database_url: str = ""
+    redis_url: str = ""
 
     # ---- llm -------------------------------------------------------------
-    llm_base_url: str = "http://llm-gateway/v1"
+    llm_base_url: str = ""
     llm_api_key: str = "dummy"
     llm_timeout_s: int = 300
     served_model_name: str = "main"
@@ -30,7 +60,7 @@ class Settings(BaseSettings):
     tool_call_parser: str = ""
 
     # ---- inference sidecar ----------------------------------------------
-    infer_base_url: str = "http://infer:8000"
+    infer_base_url: str = ""
     embed_dim: int = 1024
     sparse_dim: int = 250002
 
@@ -73,6 +103,30 @@ class Settings(BaseSettings):
     # The web tier keeps this token in an httpOnly cookie and refreshes it while
     # the user is active, so it doubles as the browser session lifetime.
     internal_jwt_ttl_minutes: int = 720
+
+    # ---- first admin account (used by `pnpm seed`) ------------------------
+    admin_email: str = "dev@agents.dev"
+    admin_name: str = "관리자"
+    admin_password: str = "devdev"
+
+    @model_validator(mode="after")
+    def _assemble(self) -> "Settings":
+        if not self.data_root:
+            self.data_root = str(REPO_ROOT / "data")
+        if not self.storage_root:
+            self.storage_root = str(Path(self.data_root) / "storage")
+        if not self.database_url:
+            self.database_url = (
+                f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
+                f"@localhost:{self.postgres_port}/{self.postgres_db}"
+            )
+        if not self.redis_url:
+            self.redis_url = f"redis://localhost:{self.redis_port}/0"
+        if not self.llm_base_url:
+            self.llm_base_url = f"http://{self.gpu_host}:{self.llm_gateway_port}/v1"
+        if not self.infer_base_url:
+            self.infer_base_url = f"http://{self.gpu_host}:{self.infer_port}"
+        return self
 
     @property
     def ocr_lang_list(self) -> list[str]:

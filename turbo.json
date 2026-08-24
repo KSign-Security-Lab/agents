@@ -6,8 +6,9 @@
       "persistent": true
     },
     "build": {
-      "outputs": [".next/**"]
-    },
-    "lint": {}
+      "outputs": [
+        ".next/**"
+      ]
+    }
   }
 }

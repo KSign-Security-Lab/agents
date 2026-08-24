@@ -47,7 +47,7 @@ against every chunk size from 1 upward.
 **The geometry contract:** rectangles are stored in PDF points with a *top-left*
 origin, alongside the page width the extractor recorded. The browser scales by
 `viewport.width / pageWidth`. Getting this wrong is the failure mode that
-silently ruins the feature, which is why `./dev bboxes` renders stored
+silently ruins the feature, which is why `pnpm bboxes` renders stored
 boxes back onto pages for visual confirmation.
 
 ---
@@ -120,7 +120,7 @@ it offers `query_table`/`calc` to the model via a real multi-round
 
 ## Roadmap
 
-**Done** — eval harness (`./dev eval`, a Korean gold set derived from
+**Done** — eval harness (`pnpm eval`, a Korean gold set derived from
 `scripts/make_samples.py`), the verify/reflect node, table tools
 (`query_table`/`calc` behind a real `tool_choice="auto"` loop), and an admin
 UI for user management. See STATUS.md for what's implemented + unit-tested
@@ -128,7 +128,7 @@ versus actually exercised against a live model.
 
 **Next**
 1. Verify the two untested ingest paths on real files: HWP and a recording.
-2. Run `./dev eval` against a live stack and look at the actual pass/fail —
+2. Run `pnpm eval` against a live stack and look at the actual pass/fail —
    it's never been exercised end to end, only checked for correctness offline.
 
 **Then**
