@@ -17,6 +17,50 @@ Adopting this **replaces** the `llm-gateway`, and with it:
 So on the GPU side it is a net *deletion*: about 150 lines of compose, nginx
 config and shell, for ~15 lines of Service.
 
+## How a cluster is arranged
+
+Two different things live on a machine, and the words for them are the confusing
+part.
+
+**The control plane** — the brain. All of it on the server node:
+
+| | |
+|---|---|
+| API server | the only thing `kubectl` talks to |
+| scheduler | decides *which node* a pod runs on — this is what finds a free `nvidia.com/gpu` |
+| controller manager | notices reality differs from what you asked for and fixes it |
+| datastore | k3s uses embedded SQLite rather than etcd |
+
+**The kubelet** — the muscle. On *every* node, server included. It actually
+starts containers, via containerd.
+
+k3s calls them `server` and `agent`; vanilla Kubernetes calls the same roles
+`control-plane node` and `worker node`. The one difference is that vanilla taints
+the control-plane node so no workloads land there, and **k3s does not** — so a
+k3s server directs and works.
+
+| | control plane | runs pods |
+|---|---|---|
+| k3s server | yes | yes |
+| k3s agent | no | yes |
+| vanilla control-plane node | yes | no, tainted |
+
+So `kubectl -n agents scale deploy/vllm --replicas=4` goes: API server records it
+→ controller manager sees 3 pods where 4 are wanted → scheduler finds nodes with
+a free GPU → the kubelet on each pulls the image and starts it. You never name a
+machine, which is the whole difference from `GPU_PEERS`.
+
+### If the server dies
+
+Pods already running **keep serving** — a kubelet does not need the API server to
+keep a container alive. What stops is changing anything: no scaling, no deploys,
+no replacing a crashed pod, and `kubectl` is dead until it is back.
+
+Real HA needs three servers with embedded etcd (`--cluster-init`, then the others
+join as servers). For three GPU machines that usually is not worth it — you would
+be spending a GPU box on redundancy. A single server plus a backup of
+`/var/lib/rancher/k3s/server` is the normal trade at this size.
+
 ## Setup
 
 `k8s/setup.sh` does the one-off bootstrap. Run it on the GPU machines, never on a
