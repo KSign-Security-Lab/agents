@@ -132,6 +132,62 @@ The upstream device-plugin manifest doesn't set it either, so `setup.sh` patches
 the DaemonSet. If k3s was installed *before* the toolkit, the RuntimeClass won't
 exist — `systemctl restart k3s` creates it, and the script says so.
 
+## Configuring the GPUs — two numbers
+
+Everything about GPU layout is these, both in `k8s/vllm.yaml`:
+
+```yaml
+spec:
+  replicas: 1                      # how many copies of the model
+  ...
+        resources:
+          limits:
+            nvidia.com/gpu: 1      # how many whole cards each copy gets
+```
+
+`replicas` is throughput. `nvidia.com/gpu` is size — vLLM splits one model across
+however many cards the pod was given, working it out at startup from
+`nvidia-smi -L`. **There is no `TENSOR_PARALLEL` to set**, and therefore nothing
+that can disagree with the card count. Ask for 2 cards and the model is split
+across 2; ask for 1 and it isn't.
+
+Three cards, three sensible layouts:
+
+| | `replicas` | `nvidia.com/gpu` | |
+|---|---|---|---|
+| three independent copies | 3 | 1 | most throughput, if the model fits on one card |
+| one bigger model, a card spare | 1 | 2 | the third card runs `infer` |
+| one model across all three | 1 | 3 | only if the attention-head count divides by 3 — often it doesn't |
+
+You never write a card index. The device plugin picks the physical cards and sets
+`CUDA_VISIBLE_DEVICES` inside the pod, and the scheduler guarantees no two pods
+get the same one.
+
+To change either number: edit, then
+
+```bash
+kubectl apply -k k8s/
+kubectl -n agents rollout status deploy/vllm
+```
+
+### If you outgrow this
+
+Two things the wider ecosystem does, worth knowing but not worth adopting for
+three machines:
+
+- **NVIDIA GPU Operator** instead of `setup.sh`'s device plugin. One Helm install
+  that manages drivers, the toolkit, the device plugin, node labels and DCGM
+  metrics together. The right answer once you have enough nodes that installing
+  drivers by hand hurts; overkill when the drivers are already there.
+- **vLLM production-stack** (`vllm-project/production-stack`), a Helm chart with a
+  prefix-cache-aware router in front of several vLLM deployments. It routes a
+  follow-up question to the replica that already has the conversation's KV cache,
+  which a plain Service cannot. Real gains under load with long conversations,
+  and a router plus chart to operate.
+
+Both replace parts of what is here without changing the application, which still
+only knows `LLM_BASE_URL`.
+
 ## Adding a machine, or more pods
 
 Two different things, and only one of them involves a machine.
@@ -166,9 +222,10 @@ it" to "join the cluster".
 ```yaml
 resources: { limits: { nvidia.com/gpu: 2 } }
 ```
-with `TENSOR_PARALLEL: "2"` in `config.yaml`. That replaces the `vllm2` profile
-from the compose setup: an odd card count is just a replica count and a
-per-pod GPU count, not a second service definition.
+
+and that is the whole change; vLLM sees two cards and splits across them. An odd
+card count is a replica count and a per-pod card count, never a second service
+definition.
 
 ## Prerequisites
 

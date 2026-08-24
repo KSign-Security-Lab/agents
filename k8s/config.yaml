@@ -1,6 +1,10 @@
-# The same values as .env's vllm and infer sections, in the one place a cluster
-# reads them. Changing this and rolling out is the equivalent of editing .env and
-# running `docker compose up -d`.
+# Every model setting, in one place. This replaced .env's vllm and infer sections
+# when those services moved off compose, so there is no second copy to drift.
+#
+# To change one:  edit here, then
+#   kubectl apply -k k8s/ && kubectl -n agents rollout restart deploy/vllm
+# A rollout is not automatic — a ConfigMap change does not restart pods on its
+# own, which is a good thing when the restart costs minutes of weight loading.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,11 +14,13 @@ data:
   MODEL_ID: LGAI-EXAONE/EXAONE-4.0-32B-AWQ
   SERVED_MODEL_NAME: main
   MAX_MODEL_LEN: "32768"
-  GPU_MEMORY_UTILIZATION: "0.62"
   TOOL_CALL_PARSER: hermes
-  # Per pod, not per node. Two cards in one pod is tensor parallel; more pods is
-  # data parallel, and the Service balances between them.
-  TENSOR_PARALLEL: "1"
+  # How much VRAM of each assigned card vLLM claims. Deliberately below 1.0 so
+  # infer's models fit alongside it when they share a node.
+  GPU_MEMORY_UTILIZATION: "0.62"
+  # There is no TENSOR_PARALLEL here on purpose: the pod counts the cards it was
+  # given and splits across all of them. Cards per copy is nvidia.com/gpu in
+  # k8s/vllm.yaml, and that is the only place it is written.
   EMBED_MODEL: BAAI/bge-m3
   RERANK_MODEL: BAAI/bge-reranker-v2-m3
   ASR_MODEL: large-v3

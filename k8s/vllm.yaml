@@ -1,6 +1,11 @@
-# vllm — the model server. Replicas are the unit of scale, so an odd card count
-# needs no second definition: 3 cards is either replicas=3 with 1 GPU each, or
-# replicas=1 with nvidia.com/gpu: 2 and TENSOR_PARALLEL=2 leaving one for infer.
+# vllm — the model server. Two numbers describe any layout, and nothing else:
+#
+#   nvidia.com/gpu   cards per copy — vLLM splits one model across them
+#   replicas         how many copies — the Service balances between them
+#
+# 3 cards, three ways: replicas=3 gpu=1 (three independent copies), replicas=1
+# gpu=2 (one bigger model, third card left for infer), replicas=1 gpu=3 (one
+# model across all three, if the head count divides by 3).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -37,11 +42,19 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
+              # How many cards did the scheduler actually give this pod? The
+              # device plugin sets CUDA_VISIBLE_DEVICES, so the pod sees only its
+              # own, and nvidia-smi counts exactly those. Deriving it means there
+              # is one knob — nvidia.com/gpu below — instead of two that have to
+              # agree. Ask for 2 cards and the model is split across 2; ask for 1
+              # and it is not. Nothing to keep in step.
+              GPUS=$(nvidia-smi -L | grep -c '^GPU')
+              echo "vllm: $GPUS GPU(s) assigned, tensor-parallel-size=$GPUS"
               exec vllm serve "$MODEL_ID" \
                 --served-model-name "$SERVED_MODEL_NAME" \
                 --max-model-len "$MAX_MODEL_LEN" \
                 --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
-                --tensor-parallel-size "$TENSOR_PARALLEL" \
+                --tensor-parallel-size "$GPUS" \
                 --host 0.0.0.0 --port 8000 \
                 --structured-outputs-config '{"disable_any_whitespace":true,"backend":"xgrammar"}' \
                 ${TOOL_CALL_PARSER:+--tool-call-parser "$TOOL_CALL_PARSER" --enable-auto-tool-choice}
@@ -56,8 +69,9 @@ spec:
             - { name: http, containerPort: 8000 }
           resources:
             limits:
-              # The scheduler places the pod on a node with this many free cards
-              # and sets CUDA_VISIBLE_DEVICES itself — no VLLM_GPUS bookkeeping.
+              # THE knob. How many whole cards one copy of the model gets; vLLM
+              # splits itself across all of them automatically. For more
+              # throughput instead, raise `replicas` above.
               nvidia.com/gpu: 1
           volumeMounts:
             - { name: hf-cache, mountPath: /root/.cache/huggingface }

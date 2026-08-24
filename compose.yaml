@@ -1,42 +1,26 @@
 # ---------------------------------------------------------------------------
-#  The entry point. Everything runs with plain docker compose:
+#  What a developer's machine runs. Everything with a GPU moved to Kubernetes —
+#  see k8s/ — so this is Postgres, Redis, and the ingest worker, nothing more.
 #
 #      docker compose up -d          docker compose ps
-#      docker compose down           docker compose logs -f vllm
+#      docker compose down           docker compose logs -f postgres
 #
 #  No -f and no --profile flags: what this machine runs is one line in .env.
 #
-#      COMPOSE_PROFILES=dev           a developer's machine
+#      COMPOSE_PROFILES=dev           postgres + redis
 #      COMPOSE_PROFILES=dev,ingest    ...also the ingest worker
-#      COMPOSE_PROFILES=gpu           a GPU server: gateway + vllm + infer
-#      COMPOSE_PROFILES=gpu,vllm2     ...plus a second vllm on its own cards
-#      COMPOSE_PROFILES=model         an extra GPU box: vllm alone, pooled by
-#                                     another machine's gateway
-#      COMPOSE_PROFILES=gpu,dev       both roles on one box
-#
-#  `docker compose config --profiles` lists them; --services shows what the
-#  current .env actually starts.
 #
 #  api and web are NOT here on purpose: they run on the host with hot reload,
-#  started by `pnpm dev`, because that is the point of developing them.
-#
-#  Scaling is not expressed as profiles either — that does not extend past two.
-#  More cards here: TENSOR_PARALLEL / DATA_PARALLEL on the one vllm service, or
-#  the vllm2 profile when the count does not divide evenly. More machines:
-#  GPU_PEERS. Either way the application still only knows LLM_BASE_URL.
+#  started by `pnpm dev`, because that is the point of developing them. The
+#  models are reached over the network — GPU_HOST in .env points at a cluster
+#  node, and the application only ever knows LLM_BASE_URL.
 # ---------------------------------------------------------------------------
 name: agents
 
-# One file per service, so each is short and named for what it starts. They sit
-# beside this file rather than in a subdirectory for a concrete reason: relative
-# paths inside an included file resolve against THAT file's directory, so a build
-# context of "." or a volume of "./data" only means the repo root while the file
-# is at the repo root. From a subdirectory they silently pointed elsewhere —
-# containers started, mounts were wrong.
+# One file per service, beside this one. Relative paths inside an included file
+# resolve against THAT file's directory, so a volume of "./data" only means the
+# repo root while the file is at the repo root.
 include:
-  - compose.gateway.yml
-  - compose.vllm.yml
-  - compose.infer.yml
   - compose.postgres.yml
   - compose.redis.yml
   - compose.worker.yml

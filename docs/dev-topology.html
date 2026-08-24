@@ -1,4 +1,4 @@
-<title>One Env Per Machine</title>
+<title>Cluster And Laptops</title>
 
 <!--
   Rendered as an Artifact: https://claude.ai/code/artifact/cfb43126-9aac-491a-a1c7-db7585980c80
@@ -252,290 +252,184 @@
 
   <header>
     <p class="eyebrow">문서 기반 에이전트 · deployment</p>
-    <h1>Every machine is <span class="b">one <code>.env</code></span><br>and <span class="a">one command</span>.</h1>
-    <p class="lede">There is a single <code>compose.yaml</code>. What a machine runs is one line in its
-    own <code>.env</code>, and then <code>docker compose up -d</code> — the same on a laptop, a GPU
-    server, or a spare GPU box. Nothing you run locally needs CUDA, so a Mac is fine.</p>
+    <h1><span class="a">Kubernetes</span> serves the models.<br><span class="b">Your laptop</span> runs everything else.</h1>
+    <p class="lede">Anything that needs a GPU is a pod in a k3s cluster on the GPU machines. Anything
+    that doesn't is Postgres and Redis in Docker on your own machine, plus <code>api</code> and
+    <code>web</code> as host processes with hot reload. Nothing local needs CUDA, so a Mac is fine.</p>
   </header>
 
   <figure>
     <div class="scroller" tabindex="0">
-      <svg viewBox="0 0 1020 580" role="img"
-           aria-label="Two machine boundaries. The GPU server runs llm-gateway on port 8602 in front of vllm, and infer on port 8603. Your laptop runs web on port 3000 and api on port 8000 as host processes with hot reload, and postgres on 5433, redis on 6380, and an optional worker in Docker. The api process reaches across the machine boundary to the GPU server over LLM_BASE_URL and INFER_BASE_URL.">
+      <svg viewBox="0 0 1000 400" role="img"
+           aria-label="A developer's laptop runs web on port 3000 and api on port 8000 as host processes, with postgres on 5433 and redis on 6380 in Docker. The api process reaches a k3s cluster over two NodePorts: 30862 for the vllm Service and 30863 for the infer Service. Each Service routes to its pods, of which vllm has one per GPU, placed by the scheduler across any number of GPU machines. The laptop addresses the Services, never a machine.">
         <defs>
-          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <polygon class="head" points="0,1 10,5 0,9"></polygon>
           </marker>
-          <marker id="ah-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <polygon class="head-hot" points="0,1 10,5 0,9"></polygon>
           </marker>
         </defs>
 
-        <!-- the gap between the two machines -->
-        <rect class="gap-band" x="654" y="76" width="70" height="470"></rect>
-        <text class="tunnel-label" transform="translate(693 538) rotate(-90)" text-anchor="start">SSH tunnel, or BIND_ADDR=0.0.0.0</text>
+        <!-- ============================ the laptop ============================ -->
+        <text class="svg-eyebrow e-loc" x="32" y="56">YOUR LAPTOP · NO GPU</text>
+        <rect class="panel panel-loc" x="30" y="68" width="440" height="300" rx="12"></rect>
 
-        <!-- ============================ YOUR MACHINE ============================ -->
-        <rect class="panel panel-loc" x="134" y="76" width="520" height="470" rx="12"></rect>
-        <text class="svg-eyebrow e-loc" x="150" y="62">YOUR MACHINE · NO GPU</text>
+        <rect class="band" x="52" y="96" width="396" height="104" rx="8"></rect>
+        <text class="svg-band-label" x="68" y="116">HOST · pnpm dev · HOT RELOAD</text>
+        <rect class="node" x="68" y="126" width="170" height="56" rx="6"></rect>
+        <text class="svg-title" x="84" y="150">web</text>
+        <text class="svg-sub" x="84" y="169">:3000 · Next.js</text>
+        <rect class="node" x="262" y="126" width="170" height="56" rx="6"></rect>
+        <text class="svg-title" x="278" y="150">api</text>
+        <text class="svg-sub" x="278" y="169">:8000 · FastAPI</text>
+        <line class="flow" x1="238" y1="154" x2="260" y2="154" marker-end="url(#a1)"></line>
 
-        <!-- browser, outside both boundaries -->
-        <rect class="node" x="24" y="145" width="86" height="62" rx="6"></rect>
-        <text class="svg-title" x="36" y="171">browser</text>
-        <text class="svg-sub" x="36" y="191">:3000</text>
-        <line class="flow" x1="110" y1="176" x2="174" y2="176" marker-end="url(#ah)"></line>
-        <text class="svg-edge" x="142" y="166" text-anchor="middle">cookie</text>
+        <rect class="band" x="52" y="232" width="396" height="112" rx="8"></rect>
+        <text class="svg-band-label" x="68" y="252">DOCKER · docker compose up -d</text>
+        <rect class="node" x="68" y="262" width="170" height="56" rx="6"></rect>
+        <text class="svg-title" x="84" y="286">postgres</text>
+        <text class="svg-sub" x="84" y="305">:5433 · pgvector</text>
+        <rect class="node" x="262" y="262" width="170" height="56" rx="6"></rect>
+        <text class="svg-title" x="278" y="286">redis</text>
+        <text class="svg-sub" x="278" y="305">:6380</text>
+        <polyline class="flow" points="300,184 300,212 153,212 153,260" marker-end="url(#a1)"></polyline>
+        <text class="svg-edge" x="210" y="206" text-anchor="middle">SQL + vectors</text>
+        <line class="flow" x1="390" y1="184" x2="390" y2="260" marker-end="url(#a1)"></line>
+        <text class="svg-edge" x="398" y="226">queue</text>
 
-        <!-- host band -->
-        <rect class="band" x="158" y="112" width="452" height="112" rx="8"></rect>
-        <text class="svg-band-label" x="174" y="132">HOST · HOT RELOAD</text>
+        <!-- ============================ the cluster =========================== -->
+        <text class="svg-eyebrow e-gpu" x="562" y="56">K3S CLUSTER · ANY NUMBER OF GPU MACHINES</text>
+        <rect class="panel panel-gpu" x="560" y="68" width="410" height="300" rx="12"></rect>
 
-        <rect class="node" x="176" y="145" width="180" height="62" rx="6"></rect>
-        <text class="svg-title" x="192" y="171">web</text>
-        <text class="svg-sub" x="192" y="191">:3000 · Next.js</text>
+        <rect class="node" x="590" y="96" width="350" height="50" rx="6"></rect>
+        <text class="svg-title" x="606" y="118">Service · vllm</text>
+        <text class="svg-sub" x="606" y="136">:30862 NodePort — any node's IP works</text>
 
-        <rect class="node" x="414" y="145" width="180" height="62" rx="6"></rect>
-        <text class="svg-title" x="430" y="171">api</text>
-        <text class="svg-sub" x="430" y="191">:8000 · FastAPI</text>
+        <rect class="node" x="590" y="172" width="350" height="52" rx="6"></rect>
+        <text class="svg-title" x="606" y="194">vllm pod × N</text>
+        <text class="svg-sub" x="606" y="212">one per GPU · the scheduler picks the machine</text>
+        <line class="flow-hot" x1="765" y1="148" x2="765" y2="170" marker-end="url(#a2)"></line>
 
-        <line class="flow" x1="356" y1="181" x2="412" y2="181" marker-end="url(#ah)"></line>
-        <text class="svg-edge" x="384" y="169" text-anchor="middle">BFF proxy</text>
+        <rect class="node" x="590" y="250" width="350" height="44" rx="6"></rect>
+        <text class="svg-title" x="606" y="272">Service · infer</text>
+        <text class="svg-sub" x="606" y="288">:30863</text>
+        <rect class="node" x="590" y="312" width="350" height="44" rx="6"></rect>
+        <text class="svg-title" x="606" y="334">infer pod</text>
+        <text class="svg-sub" x="700" y="334">embed · rerank · ASR</text>
+        <line class="flow-hot" x1="765" y1="296" x2="765" y2="310" marker-end="url(#a2)"></line>
 
-        <!-- docker band -->
-        <rect class="band" x="158" y="268" width="452" height="188" rx="8"></rect>
-        <text class="svg-band-label" x="174" y="288">DOCKER · docker compose up -d</text>
-
-        <rect class="node" x="176" y="300" width="210" height="60" rx="6"></rect>
-        <text class="svg-title" x="192" y="326">postgres</text>
-        <text class="svg-sub" x="192" y="345">:5433 · pgvector</text>
-
-        <rect class="node" x="410" y="300" width="184" height="60" rx="6"></rect>
-        <text class="svg-title" x="426" y="326">redis</text>
-        <text class="svg-sub" x="426" y="345">:6380</text>
-
-        <rect class="node-opt" x="176" y="386" width="418" height="52" rx="6"></rect>
-        <text class="svg-title" x="192" y="410">worker</text>
-        <text class="svg-sub" x="192" y="428">opt-in · LibreOffice · OCR · ffmpeg</text>
-
-        <polyline class="flow" points="504,207 504,238 281,238 281,298" marker-end="url(#ah)"></polyline>
-        <text class="svg-edge" x="380" y="231" text-anchor="middle">SQL + vectors</text>
-
-        <line class="flow" x1="548" y1="207" x2="548" y2="298" marker-end="url(#ah)"></line>
-        <text class="svg-edge" x="558" y="258">enqueue</text>
-
-        <line class="flow" x1="502" y1="360" x2="502" y2="384" marker-end="url(#ah)"></line>
-        <text class="svg-edge" x="512" y="378">arq</text>
-
-        <!-- ============================= GPU SERVER ============================= -->
-        <rect class="panel panel-gpu" x="724" y="76" width="272" height="380" rx="12"></rect>
-        <text class="svg-eyebrow e-gpu" x="740" y="62">GPU SERVER · ANY CARD COUNT</text>
-
-        <rect class="node" x="748" y="145" width="224" height="58" rx="6"></rect>
-        <text class="svg-title" x="764" y="169">llm-gateway</text>
-        <text class="svg-sub" x="764" y="188">:8602 · nginx</text>
-
-        <rect class="node" x="748" y="240" width="224" height="68" rx="6"></rect>
-        <text class="svg-title" x="764" y="266">vllm</text>
-        <text class="svg-sub" x="764" y="285">EXAONE-4.0-32B-AWQ</text>
-
-        <line class="flow" x1="860" y1="203" x2="860" y2="238" marker-end="url(#ah)"></line>
-        <text class="svg-edge" x="870" y="225">proxy_pass</text>
-
-        <rect class="node" x="748" y="352" width="224" height="76" rx="6"></rect>
-        <text class="svg-title" x="764" y="377">infer</text>
-        <text class="svg-sub" x="764" y="396">:8603 · bge-m3 · reranker</text>
-        <text class="svg-sub" x="764" y="414">faster-whisper</text>
-
-        <!-- the two hops that cross the machine boundary -->
-        <line class="flow-hot" x1="594" y1="162" x2="746" y2="162" marker-end="url(#ah-hot)"></line>
-        <text class="svg-edge-hot" x="670" y="152" text-anchor="middle">LLM_BASE_URL</text>
-
-        <polyline class="flow-hot" points="594,196 630,196 630,384 746,384" marker-end="url(#ah-hot)"></polyline>
-        <text class="svg-edge-hot" x="688" y="374" text-anchor="middle">INFER_BASE_URL</text>
+        <!-- the only two things that cross -->
+        <line class="flow-hot" x1="434" y1="146" x2="588" y2="120" marker-end="url(#a2)"></line>
+        <text class="svg-edge-hot" x="510" y="118" text-anchor="middle">LLM_BASE_URL</text>
+        <polyline class="flow-hot" points="434,170 505,170 505,272 588,272" marker-end="url(#a2)"></polyline>
+        <text class="svg-edge-hot" x="513" y="290">INFER_BASE_URL</text>
       </svg>
     </div>
-    <figcaption>Only two arrows leave your machine, and both come out of <span class="inline">api</span>.
-    That is the whole coupling: set <span class="inline">GPU_HOST</span> in <span class="inline">.env</span>
-    and those two URLs resolve. Everything inside the left boundary is yours to break.</figcaption>
+    <figcaption>Two arrows leave your laptop and both land on a <strong>Service</strong>, not a
+    machine. That is the whole coupling: one <span class="inline">GPU_HOST</span> in
+    <span class="inline">.env</span>, and the cluster decides which pod on which machine answers. Add
+    a GPU box, lose one, replace one — nothing on this side changes.</figcaption>
   </figure>
 
-  <!-- ================================ commands ================================ -->
   <section>
-    <h2 class="section">Four kinds of machine</h2>
-    <p class="lede" style="font-size:16px">Each column is a complete <code>.env</code>. Copy
-    <code>.env.example</code>, set these, run <code>docker compose up -d</code>. Nothing else differs
-    between machines, and no machine needs to know about any other except the one that pools them.</p>
+    <h2 class="section">Two kinds of machine</h2>
+    <p class="lede" style="font-size:16px">A GPU machine holds no configuration of its own — it joins
+    the cluster and is done. A developer's machine is a two-line <code>.env</code>. That asymmetry is
+    the point: adding GPU capacity is an operation on the cluster, not an edit on every laptop.</p>
 
     <div class="tbl" style="margin-top:22px">
       <table>
-        <thead>
-          <tr><th>Machine</th><th>Its .env says</th><th>Containers it runs</th></tr>
-        </thead>
+        <thead><tr><th>Machine</th><th>How it is set up</th><th>What runs on it</th></tr></thead>
         <tbody>
           <tr>
+            <td><span class="svc svc-gpu">a GPU machine</span><br><span class="where">one, or several</span></td>
+            <td><pre style="font-size:12.5px"><span class="c"># the first one</span>
+sudo k8s/setup.sh server
+
+<span class="c"># each one after it</span>
+sudo k8s/setup.sh agent \
+     &lt;server-ip&gt; &lt;token&gt;</pre></td>
+            <td><code>vllm</code> pods — one per GPU<br><code>infer</code> pod<br><span class="where">and the control plane, on the first</span></td>
+          </tr>
+          <tr>
             <td><span class="svc svc-loc">a developer's laptop</span></td>
-            <td><pre style="font-size:12.5px">COMPOSE_PROFILES=dev
-GPU_HOST=10.0.0.11</pre></td>
-            <td><code>postgres</code> :5433<br><code>redis</code> :6380<br><span class="where">then
-            <code>pnpm dev</code> for api + web on the host</span></td>
-          </tr>
-          <tr>
-            <td><span class="svc svc-gpu">the GPU server</span><br><span class="where">the one
-            developers point at</span></td>
-            <td><pre style="font-size:12.5px">COMPOSE_PROFILES=gpu
-BIND_ADDR=0.0.0.0
-VLLM_GPUS=0
-INFER_GPUS=1</pre></td>
-            <td><code>llm-gateway</code> :8602<br><code>vllm</code> :8601<br><code>infer</code> :8603</td>
-          </tr>
-          <tr>
-            <td><span class="svc svc-gpu">a spare GPU box</span><br><span class="where">pooled by the
-            server above</span></td>
-            <td><pre style="font-size:12.5px">COMPOSE_PROFILES=model
-BIND_ADDR=0.0.0.0
-VLLM_GPUS=0</pre></td>
-            <td><code>vllm</code> :8601<br><span class="where">no gateway, no infer — it only serves
-            the model</span></td>
-          </tr>
-          <tr>
-            <td><span class="svc svc-loc">one box doing both</span></td>
-            <td><pre style="font-size:12.5px">COMPOSE_PROFILES=gpu,dev
-BIND_ADDR=0.0.0.0</pre></td>
-            <td>all five of the above</td>
+            <td><pre style="font-size:12.5px">cp .env.example .env
+<span class="c"># the whole file:</span>
+COMPOSE_PROFILES=dev
+GPU_HOST=10.0.0.11
+
+docker compose up -d
+pnpm install &amp;&amp; pnpm venv
+pnpm dev</pre></td>
+            <td><code>postgres</code> :5433<br><code>redis</code> :6380<br><code>api</code> and <code>web</code> on the host</td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <div class="callout" style="margin-top:24px">
-      <p class="step">Joining them up</p>
-      <p>Only the GPU server needs to know the others exist. On <em>its</em>
-      <span class="inline">.env</span>, one line:</p>
-      <pre><span class="c"># the OTHER GPU boxes, ip:port — this machine's own vllm is never listed</span>
-GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601</pre>
-      <p>Its gateway then balances across all of them with <code>least_conn</code>, dropping one that
-      stops answering. Developers still set a single <span class="inline">GPU_HOST</span> and never
-      learn how many machines there are. Use IP addresses: those entries reach nginx unchanged, and a
-      hostname would be resolved by the container's DNS, which never reads the host's
-      <code>/etc/hosts</code>.</p>
-      <p>Adding another box: <code>COMPOSE_PROFILES=model</code> there, one more entry here, then
-      <code>docker compose up -d llm-gateway</code> — under a second, with no model reloaded. Note
-      <code>restart</code> will <em>not</em> pick it up: a container's environment is fixed when it is
-      created.</p>
+      <p class="step">Why a laptop only needs one address</p>
+      <p><code>GPU_HOST</code> is <em>any</em> node's IP. The models sit behind Kubernetes
+      <span class="inline">Service</span>es on fixed NodePorts — 30862 for vllm, 30863 for infer — and
+      each routes to whichever pod is ready. A developer never learns how many GPU machines exist,
+      which one answered, or that one was replaced this morning.</p>
+      <p>This is what let the nginx gateway, <code>GPU_PEERS</code>, and per-machine
+      <code>VLLM_GPUS</code> bookkeeping be deleted outright: about 150 lines of compose, nginx
+      config and shell that a Service does for free.</p>
     </div>
   </section>
 
   <section>
-    <h2 class="section">What each profile covers</h2>
-
-    <figure>
-      <div class="scroller" tabindex="0">
-        <svg viewBox="0 0 1000 470" role="img"
-             aria-label="compose.yaml contains seven services across five profiles. The dev profile holds postgres and redis. The ingest profile holds the worker, which depends on postgres and redis, so ingest cannot be used without dev. The gpu profile holds llm-gateway, vllm and infer. vllm is also in a model profile, for an extra GPU box that serves the model alone and is pooled by another machine's gateway. A vllm2 profile adds a second local vllm on its own cards, for a machine whose card count does not divide evenly. Scaling otherwise is not a profile: TENSOR_PARALLEL and DATA_PARALLEL scale the one vllm service across local GPUs, and GPU_PEERS gives the IPs of other GPU machines for the gateway to pool.">
-          <defs>
-            <marker id="pa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-              <polygon class="head" points="0,1 10,5 0,9"></polygon>
-            </marker>
-            <marker id="pa-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-              <polygon class="head-hot" points="0,1 10,5 0,9"></polygon>
-            </marker>
-          </defs>
-
-          <!-- ============================== dev ============================== -->
-          <text class="svg-eyebrow e-loc" x="42" y="52">dev — A ROLE, RUNS ALONE</text>
-          <rect class="panel panel-loc" x="40" y="64" width="380" height="124" rx="10"
-                stroke-dasharray="0"></rect>
-          <rect class="node" x="68" y="100" width="160" height="56" rx="6"></rect>
-          <text class="svg-title" x="84" y="124">postgres</text>
-          <text class="svg-sub" x="84" y="143">:5433 · pgvector</text>
-          <rect class="node" x="252" y="100" width="140" height="56" rx="6"></rect>
-          <text class="svg-title" x="268" y="124">redis</text>
-          <text class="svg-sub" x="268" y="143">:6380</text>
-
-          <!-- ============================= ingest ============================= -->
-          <text class="svg-eyebrow e-loc" x="42" y="266">ingest — AN ADD-ON</text>
-          <rect class="panel panel-loc" x="40" y="278" width="380" height="122" rx="10"></rect>
-          <rect class="node" x="68" y="312" width="324" height="58" rx="6"></rect>
-          <text class="svg-title" x="84" y="336">worker</text>
-          <text class="svg-sub" x="84" y="355">LibreOffice · OCR · ffmpeg</text>
-
-          <line class="flow" x1="148" y1="310" x2="148" y2="160" marker-end="url(#pa)"></line>
-          <line class="flow" x1="322" y1="310" x2="322" y2="160" marker-end="url(#pa)"></line>
-          <text class="svg-edge" x="158" y="238">depends_on</text>
-          <text class="svg-edge" x="158" y="254">— so it needs dev</text>
-
-          <!-- ============================== gpu =============================== -->
-          <text class="svg-eyebrow e-gpu" x="582" y="52">gpu — A ROLE, RUNS ALONE</text>
-          <rect class="panel panel-gpu" x="580" y="64" width="380" height="260" rx="10"
-                stroke-dasharray="0"></rect>
-          <rect class="node" x="608" y="100" width="300" height="52" rx="6"></rect>
-          <text class="svg-title" x="624" y="123">llm-gateway</text>
-          <text class="svg-sub" x="624" y="141">:8602 · nginx</text>
-          <rect class="node" x="608" y="176" width="300" height="54" rx="6"></rect>
-          <text class="svg-title" x="624" y="200">vllm</text>
-          <text class="svg-sub" x="624" y="219">:8601 · profiles: gpu AND model</text>
-          <rect class="node" x="608" y="252" width="300" height="54" rx="6"></rect>
-          <text class="svg-title" x="624" y="276">infer</text>
-          <text class="svg-sub" x="624" y="295">:8603 · embed · rerank · ASR</text>
-
-          <line class="flow-hot" x1="758" y1="152" x2="758" y2="174" marker-end="url(#pa-hot)"></line>
-          <text class="svg-edge-hot" x="768" y="169">pooled</text>
-
-          <!-- ============================== vllm2 ============================= -->
-          <text class="svg-eyebrow e-gpu" x="582" y="362">vllm2 — FOR AN ODD CARD COUNT</text>
-          <rect class="panel panel-gpu" x="580" y="374" width="380" height="76" rx="10"></rect>
-          <rect class="node" x="608" y="392" width="300" height="44" rx="6"></rect>
-          <text class="svg-title" x="624" y="410">vllm-2</text>
-          <text class="svg-sub" x="624" y="427">:8611 · its own cards, same command</text>
-
-          <!-- ============================== thesis ============================ -->
-          <text class="svg-title" x="500" y="186" text-anchor="middle">7 services</text>
-          <text class="svg-title" x="500" y="208" text-anchor="middle">5 profiles</text>
-          <text class="svg-sub" x="500" y="240" text-anchor="middle">only vllm belongs</text>
-          <text class="svg-sub" x="500" y="256" text-anchor="middle">to two of them:</text>
-          <text class="svg-sub" x="500" y="272" text-anchor="middle">gpu, and model</text>
-        </svg>
-      </div>
-      <figcaption>A profile answers one question — <em>what runs on this machine</em> — so a
-      comma-separated list is just a union: <span class="inline">gpu,dev</span> starts five
-      containers because those are the five in those two groups. The groups are almost disjoint;
-      the single deliberate overlap is <span class="inline">vllm</span>, which is in
-      <span class="inline">gpu</span> (a whole GPU server) and also in
-      <span class="inline">model</span> (an extra GPU box serving the model alone, pooled by another
-      machine's gateway). That way every machine is described by its own <code>.env</code> and they
-      all run the same bare <code>docker compose up -d</code>. Profiles are deliberately <em>not</em>
-      how you scale, though: a service per replica stops working at two and can't describe a remote
-      GPU at all — that's <span class="inline">TENSOR_PARALLEL</span> /
-      <span class="inline">DATA_PARALLEL</span> and <span class="inline">GPU_PEERS</span>.
-      Nothing runs between the dev side and the gpu side either; the only thing joining them is
-      <span class="inline">api</span>, on your host.</figcaption>
-    </figure>
-
-    <div class="tbl" style="margin-top: 28px">
+    <h2 class="section">Adding GPU capacity</h2>
+    <div class="tbl">
       <table>
-        <thead><tr><th>COMPOSE_PROFILES</th><th>Containers you get</th><th></th></tr></thead>
+        <thead><tr><th>You want</th><th>Do this</th><th>What happens</th></tr></thead>
         <tbody>
-          <tr><td><code>dev</code></td><td>postgres, redis</td><td>a laptop</td></tr>
-          <tr><td><code>dev,ingest</code></td><td>postgres, redis, worker</td><td>…also debugging ingest</td></tr>
-          <tr><td><code>gpu</code></td><td>llm-gateway, vllm, infer</td><td>a GPU server — any number of cards</td></tr>
-          <tr><td><code>model</code></td><td>vllm</td><td>an extra GPU box, pooled by another machine's gateway</td></tr>
-          <tr><td><code>gpu,vllm2</code></td><td>…plus a second vllm on its own cards</td><td>an odd card count — 3 cards as a pair plus a single</td></tr>
-          <tr><td><code>gpu,dev</code></td><td>all five</td><td>one box doing both</td></tr>
           <tr>
-            <td><code>ingest</code></td>
-            <td colspan="2"><strong>Error</strong>, not an empty set:
-            <code>service "worker" depends on undefined service "postgres"</code>. The add-on's
-            dependencies live in <code>dev</code>, so it can't be used alone.</td>
+            <td>more pods on machines you have</td>
+            <td><code>kubectl -n agents scale deploy/vllm --replicas=3</code></td>
+            <td>The scheduler places them on nodes with a free card. One with no card left stays
+            <code>Pending</code> rather than failing oddly.</td>
           </tr>
           <tr>
-            <td><em>unset</em></td>
-            <td colspan="2">Nothing starts. Every service is profiled, so a bare
-            <code>docker compose up -d</code> with no <code>.env</code> is a no-op — which is why
-            there's no way to accidentally launch all six.</td>
+            <td>a whole new machine</td>
+            <td><code>sudo k8s/setup.sh agent &lt;ip&gt; &lt;token&gt;</code>, then scale</td>
+            <td>It registers itself, the device plugin lands on it automatically and advertises its
+            cards, and the Service adds the new pod once it passes readiness. <strong>No config
+            changes anywhere</strong> — no <code>.env</code> edit on any laptop, nothing restarted.</td>
+          </tr>
+          <tr>
+            <td>a model too big for one card</td>
+            <td><code>nvidia.com/gpu: 2</code></td>
+            <td>One pod holds two cards and vLLM splits the model across them, working that out
+            itself — which is why an odd card count needs no second service definition.</td>
           </tr>
         </tbody>
       </table>
     </div>
+  </section>
+
+  <section>
+    <h2 class="section">How GPUs are divided</h2>
+    <p class="lede" style="font-size:16px">Whole cards, never fractions. Kubernetes will not give two
+    pods the same GPU, and for extended resources it forces requests to equal limits — so
+    overcommitting isn't something you can do by accident.</p>
+    <div class="tbl" style="margin-top:22px">
+      <table>
+        <thead><tr><th>You control</th><th>With</th></tr></thead>
+        <tbody>
+          <tr><td>how many cards each copy gets</td><td><code>nvidia.com/gpu: N</code> — vLLM splits the model across all of them by itself, counting them at startup, so there is no second setting to keep in step</td></tr>
+          <tr><td>how many copies</td><td><code>replicas</code></td></tr>
+          <tr><td>how much VRAM of each card vLLM claims</td><td><code>GPU_MEMORY_UTILIZATION</code> — 0.62, leaving room for <code>infer</code></td></tr>
+          <tr><td>which machine, if you must</td><td>a node label and <code>nodeSelector</code></td></tr>
+          <tr><td><em>which physical card</em></td><td><em>you don't.</em> The device plugin assigns it and sets <code>CUDA_VISIBLE_DEVICES</code> — that is the bookkeeping this replaced</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lede" style="font-size:15px; margin-top:16px">Sharing one card between pods needs
+    time-slicing, MPS or MIG. None suit vLLM, which preallocates its share of the card at startup and
+    would collide with a co-tenant.</p>
   </section>
 
   <section>
@@ -544,43 +438,24 @@ GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601</pre>
 
       <div>
         <div class="roster-head">
-          <span class="chip chip-gpu">gpu</span>
-          <h3>COMPOSE_PROFILES=gpu</h3>
-          <span class="note">Three services, plus an optional second vllm. <code>vllm</code> and <code>infer</code> need CUDA, which is the entire reason none of this is local.</span>
+          <span class="chip chip-gpu">cluster</span>
+          <h3>k8s/ — applied with <code>kubectl apply -k k8s/</code></h3>
+          <span class="note">Both need CUDA, which is the entire reason none of it is local.</span>
         </div>
         <div class="tbl">
           <table>
-            <thead><tr><th>Service</th><th>Runs as</th><th>What it does</th></tr></thead>
+            <thead><tr><th>Pod</th><th>Reached at</th><th>What it does</th></tr></thead>
             <tbody>
               <tr>
-                <td><span class="svc svc-gpu">llm-gateway</span></td>
-                <td class="where">nginx · :8602</td>
-                <td>The one URL the application knows. Whether there's one replica behind it or
-                three is <code>GPU_PEERS</code> in <code>.env</code> — the <code>ip:port</code> of the
-                <em>other</em> GPU machines, which it pools with <code>least_conn</code> alongside
-                its own. Use IPs: entries reach nginx unchanged, and a hostname would be resolved by
-                the container's DNS, which never reads the host's <code>/etc/hosts</code>. The
-                application never learns any of it.</td>
-              </tr>
-              <tr>
                 <td><span class="svc svc-gpu">vllm</span></td>
-                <td class="where">container · :8601</td>
-                <td>Serves <code>EXAONE-4.0-32B-AWQ</code>. <strong>One service whatever the card
-                count</strong>: <code>TENSOR_PARALLEL</code> splits a model across cards,
-                <code>DATA_PARALLEL</code> runs that many copies inside it. Published on 8601 so a
-                gateway on another machine can pool it.</td>
-              </tr>
-              <tr>
-                <td><span class="svc svc-gpu">vllm-2</span><br><span class="where">profile: vllm2</span></td>
-                <td class="where">container · :8611</td>
-                <td>A second instance for a card count that doesn't divide evenly —
-                <code>TENSOR_PARALLEL</code> must divide the model's attention-head count, so 3 is
-                usually invalid. Same image and the same command, inherited from a YAML anchor; only
-                its cards differ. The gateway pools it from the profile alone.</td>
+                <td class="where">Service :30862</td>
+                <td>Serves <code>EXAONE-4.0-32B-AWQ</code> — the answers, and the tool calls the
+                agent's query planning depends on. One pod per GPU by default; the Service balances
+                across every ready one.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-gpu">infer</span></td>
-                <td class="where">container · :8603</td>
+                <td class="where">Service :30863</td>
                 <td>Three models in one VRAM budget: <strong>bge-m3</strong> embeds (one pass gives
                 both the dense vector and the sparse lexical weights, so hybrid search needs no
                 second model), <strong>bge-reranker-v2-m3</strong> rescores the shortlist, and
@@ -593,9 +468,9 @@ GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601</pre>
 
       <div>
         <div class="roster-head">
-          <span class="chip chip-loc">dev</span>
-          <h3>COMPOSE_PROFILES=dev, plus two host processes</h3>
-          <span class="note">Nothing here needs a GPU, so all of it runs on your laptop.</span>
+          <span class="chip chip-loc">laptop</span>
+          <h3>compose.*.yml and <code>pnpm dev</code></h3>
+          <span class="note">No GPU anywhere in here.</span>
         </div>
         <div class="tbl">
           <table>
@@ -604,10 +479,10 @@ GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601</pre>
               <tr>
                 <td><span class="svc svc-loc">postgres</span></td>
                 <td class="where">container · :5433</td>
-                <td>pgvector. Documents, chunks, the branching message tree, and both vector
-                columns — <code>vector</code> for dense, <code>sparsevec</code> for lexical.
-                Also holds <code>chunk_spans</code>, the text-offset → page-rectangle map that
-                makes citations clickable.</td>
+                <td>pgvector. Documents, chunks, the branching message tree, and both vector columns —
+                <code>vector</code> for dense, <code>sparsevec</code> for lexical. Also
+                <code>chunk_spans</code>, the text-offset → page-rectangle map that makes citations
+                clickable.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-loc">redis</span></td>
@@ -618,21 +493,20 @@ GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601</pre>
                 <td><span class="svc svc-loc">api</span></td>
                 <td class="where">host · :8000 · reloads</td>
                 <td>FastAPI + LangGraph: the agent, SSE streaming, citation resolution. Carries no
-                torch at all — every GPU call goes out over HTTP — which is why it runs on your
-                host instead of in a container.</td>
+                torch at all — every GPU call goes out over HTTP — which is why it runs on your host.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-loc">web</span></td>
                 <td class="where">host · :3000 · reloads</td>
-                <td>Next.js UI, and the proxy in front of it: the browser never sees the API, it
-                holds an httpOnly cookie and this tier attaches the token server-side.</td>
+                <td>Next.js UI, and the proxy in front of it: the browser never sees the API, it holds
+                an httpOnly cookie and this tier attaches the token server-side.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-loc">worker</span></td>
                 <td class="where">container · opt-in</td>
-                <td>convert → extract → chunk → embed → categorize. LibreOffice, H2Orestart for
-                HWP, PyMuPDF, OCR and ffmpeg are why this image is large, so it only starts with
-                <code>docker compose up -d worker</code> — you need it to debug ingest, not to work on chat.</td>
+                <td>convert → extract → chunk → embed → categorize. LibreOffice, H2Orestart for HWP,
+                PyMuPDF, OCR and ffmpeg are why the image is large, so it starts only with
+                <code>COMPOSE_PROFILES=dev,ingest</code>.</td>
               </tr>
             </tbody>
           </table>
@@ -642,79 +516,28 @@ GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601</pre>
     </div>
   </section>
 
-  <!-- ================================= variants ================================ -->
-  <section>
-    <h2 class="section">Running less than everything</h2>
-    <div class="tbl">
-      <table>
-        <thead>
-          <tr><th>Command</th><th>Starts</th><th>Reach for it when</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>pnpm dev</code></td>
-            <td>containers + api + web</td>
-            <td>the normal case</td>
-          </tr>
-          <tr>
-            <td><code>pnpm up</code></td>
-            <td>postgres + redis only</td>
-            <td>you want to launch <code>api</code> from your IDE — point it at <code>.venv/bin/python</code>, working dir <code>apps/</code></td>
-          </tr>
-          <tr>
-            <td><code>pnpm api</code></td>
-            <td>just api</td>
-            <td>two terminals, or web is already running</td>
-          </tr>
-          <tr>
-            <td><code>pnpm web</code></td>
-            <td>just web</td>
-            <td>frontend-only work</td>
-          </tr>
-          <tr>
-            <td><code>docker compose up -d worker</code></td>
-            <td>the above, plus the <code>worker</code> container</td>
-            <td>you're touching ingest — it's a big image, so it stays opt-in</td>
-          </tr>
-          <tr>
-            <td><code>docker compose down</code></td>
-            <td>stops and removes the containers; the data survives</td>
-            <td>done for the day. Postgres and Redis are bind mounts under
-            <code>data/</code>, not named volumes, so <code>down -v</code> does <em>not</em> wipe
-            them — deleting <code>data/postgres</code> is what starts fresh</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- =================================== ports ================================= -->
   <section>
     <h2 class="section">Ports</h2>
     <div class="tbl">
       <table>
-        <thead>
-          <tr><th>Port</th><th>Lives on</th><th>Service</th><th>Who dials it</th></tr>
-        </thead>
+        <thead><tr><th>Port</th><th>Where</th><th>What</th><th>Who dials it</th></tr></thead>
         <tbody>
-          <tr><td class="num">8602</td><td><span class="chip chip-gpu">GPU server</span></td><td>llm-gateway → vllm</td><td><code>api</code>, via <code>LLM_BASE_URL</code></td></tr>
-          <tr><td class="num">8603</td><td><span class="chip chip-gpu">GPU server</span></td><td>infer — embed, rerank, ASR</td><td><code>api</code>, via <code>INFER_BASE_URL</code></td></tr>
-          <tr><td class="num">3000</td><td><span class="chip chip-loc">laptop</span></td><td>web (Next.js, host)</td><td>your browser</td></tr>
-          <tr><td class="num">8000</td><td><span class="chip chip-loc">laptop</span></td><td>api (FastAPI, host)</td><td><code>web</code>, via <code>API_INTERNAL_URL</code></td></tr>
-          <tr><td class="num">5433</td><td><span class="chip chip-loc">laptop</span></td><td>postgres + pgvector (Docker)</td><td><code>api</code>, <code>worker</code></td></tr>
-          <tr><td class="num">6380</td><td><span class="chip chip-loc">laptop</span></td><td>redis (Docker)</td><td><code>api</code> enqueues, <code>worker</code> consumes</td></tr>
+          <tr><td class="num">30862</td><td><span class="chip chip-gpu">cluster</span></td><td>vllm Service (NodePort)</td><td><code>api</code>, via <code>LLM_BASE_URL</code></td></tr>
+          <tr><td class="num">30863</td><td><span class="chip chip-gpu">cluster</span></td><td>infer Service (NodePort)</td><td><code>api</code>, via <code>INFER_BASE_URL</code></td></tr>
+          <tr><td class="num">3000</td><td><span class="chip chip-loc">laptop</span></td><td>web, host process</td><td>your browser</td></tr>
+          <tr><td class="num">8000</td><td><span class="chip chip-loc">laptop</span></td><td>api, host process</td><td><code>web</code>, via <code>API_INTERNAL_URL</code></td></tr>
+          <tr><td class="num">5433</td><td><span class="chip chip-loc">laptop</span></td><td>postgres + pgvector</td><td><code>api</code>, <code>worker</code></td></tr>
+          <tr><td class="num">6380</td><td><span class="chip chip-loc">laptop</span></td><td>redis</td><td><code>api</code> enqueues, <code>worker</code> consumes</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
   <footer>
-    Config is one file: <code>.env</code> at the repo root, copied from <code>.env.example</code>.
-    Compose interpolates it, and <code>apps/api/app/config.py</code> reads it by absolute path to
-    assemble the database and model URLs — so one file describes a machine, whichever role it has,
-    and there is no second config location anywhere. The compose definitions are one file per service —
-    <code>compose.vllm.yml</code>, <code>compose.postgres.yml</code> and so on — pulled together by
-    <code>compose.yaml</code>, which changes nothing about how you run it.
+    A laptop is two lines of <code>.env</code>; a GPU machine is none. Model settings live in
+    <code>k8s/config.yaml</code>, the ports above in <code>k8s/vllm.yaml</code> and
+    <code>k8s/infer.yaml</code>, and <code>apps/api/app/config.py</code> builds every URL the
+    application uses. Cluster setup and its caveats are in <code>k8s/README.md</code>.
   </footer>
 
 </div>

@@ -29,10 +29,12 @@ class Settings(BaseSettings):
                                       case_sensitive=False)
 
     # ---- where things live ----------------------------------------------
-    # The machine serving the models; the LLM and infer URLs are built from it.
+    # A node of the Kubernetes cluster serving the models. The ports are the
+    # NodePorts from k8s/vllm.yaml and k8s/infer.yaml, so any node works — the
+    # Service routes to whichever pod is ready.
     gpu_host: str = "localhost"
-    llm_gateway_port: int = 8602
-    infer_port: int = 8603
+    llm_port: int = 30862
+    infer_port: int = 30863
     postgres_user: str = "agents"
     postgres_password: str = "agents"
     postgres_db: str = "agents"
@@ -123,7 +125,7 @@ class Settings(BaseSettings):
         if not self.redis_url:
             self.redis_url = f"redis://localhost:{self.redis_port}/0"
         if not self.llm_base_url:
-            self.llm_base_url = f"http://{self.gpu_host}:{self.llm_gateway_port}/v1"
+            self.llm_base_url = f"http://{self.gpu_host}:{self.llm_port}/v1"
         if not self.infer_base_url:
             self.infer_base_url = f"http://{self.gpu_host}:{self.infer_port}"
         return self

@@ -34,7 +34,7 @@ Korean-first throughout: prompts, UI, sentence segmentation, OCR, and models.
   web (Next.js)          BFF proxy keeps the API token in an httpOnly cookie
     │
     ├─ api (FastAPI)     sessions, message tree, SSE streaming, citation resolution
-    │    ├─ llm-gateway ──▶ vllm       one URL regardless of GPU topology
+    │    ├─ vllm ──────────▶ k8s Service, one URL however many GPU machines
     │    ├─ infer ─────────▶ bge-m3 · bge-reranker-v2-m3 · faster-whisper
     │    └─ postgres        pgvector: dense vector + sparse lexical, HNSW
     │
@@ -55,207 +55,89 @@ Korean-first throughout: prompts, UI, sentence segmentation, OCR, and models.
 
 ## Running it
 
-One `compose.yaml`, one `.env`, and plain compose commands:
+Two kinds of machine, sharing nothing but a network.
+
+### GPU machines — a k3s cluster
+
+They hold no configuration of their own. Join the cluster and they're done.
+
+```bash
+sudo k8s/setup.sh server                       # the first machine
+sudo k8s/setup.sh agent <server-ip> <token>    # each one after it
+kubectl apply -k k8s/
+```
+
+`k8s/setup.sh` checks the driver and toolkit, installs k3s and the NVIDIA device
+plugin, and finishes by running a real GPU pod — if that passes, the cluster can
+serve models. See [`k8s/README.md`](k8s/README.md) for the detail, including the
+RuntimeClass trap and how to get `agents/infer:dev` onto the nodes.
+
+**GPU layout is two numbers**, both in `k8s/vllm.yaml`:
+
+```yaml
+replicas: 1                  # how many copies of the model
+nvidia.com/gpu: 1            # how many whole cards each copy gets
+```
+
+vLLM counts the cards it was given and splits the model across all of them, so
+there is no second setting to keep in step and no card index to write anywhere.
+Three cards is `replicas: 3, gpu: 1` for throughput, or `replicas: 1, gpu: 2` for
+a bigger model with the third card left for `infer`.
+
+Kubernetes allocates whole cards and never gives two pods the same one; for
+extended resources it forces requests to equal limits, so you cannot overcommit
+by accident.
+
+### A developer's machine — two lines of `.env`
 
 ```bash
 cp .env.example .env
-$EDITOR .env             # set COMPOSE_PROFILES — what this machine runs
-docker compose up -d
+$EDITOR .env              # COMPOSE_PROFILES=dev, GPU_HOST=<any cluster node>
+docker compose up -d      # postgres + redis
+pnpm install && pnpm venv
+pnpm dev                  # api + web on the host, reloading
 ```
 
-There are four profiles. You never have to guess which — compose lists them:
+`GPU_HOST` is *any* node's IP. The models sit behind Kubernetes Services on fixed
+NodePorts — 30862 for vllm, 30863 for infer — each routing to whichever pod is
+ready, so a developer never learns how many GPU machines exist or which answered.
 
-```bash
-docker compose config --profiles     # every profile this file defines
-docker compose config --services     # what your .env starts right now
-```
-
-| Profile | Starts | Add it when |
-|---|---|---|
-| `dev` | postgres, redis | you're developing — this is the default in `.env.example` |
-| `gpu` | llm-gateway, vllm, infer | the machine has CUDA and serves the models |
-| `model` | vllm alone | an extra GPU box, pooled by the gateway on another machine |
-| `vllm2` | a second local vllm | this machine has an odd number of cards — see below |
-| `ingest` | worker | you're debugging ingest (big image: LibreOffice, OCR, ffmpeg) |
-
-Combine with commas — `dev,ingest`, or `gpu,dev` for both roles on one box. You
-can also skip `.env` entirely and name services, which activates their profile on
-the spot: `docker compose up -d postgres redis`.
-
-**Scaling is not a profile.** Profiles say what runs on *this* machine; they were
-never going to describe four GPUs, let alone a GPU on another host. Two separate
-axes handle that, and neither adds a service:
-
-```bash
-# more cards on THIS machine — vLLM does it inside the one server
-VLLM_GPUS=0,1,2,3   TENSOR_PARALLEL=2   DATA_PARALLEL=2
-
-# more machines — the others' ip:port; this machine's own vllm is always included
-GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601
-```
-
-`TENSOR_PARALLEL` splits one model across N cards; `DATA_PARALLEL` runs N copies
-and load-balances between them. They multiply, and the product should equal the
-number of cards you listed.
-
-Both are **uniform**, which an odd card count can't always use — `TENSOR_PARALLEL`
-must divide the model's attention-head count, so 3 is usually invalid. For 3 cards
-as a tensor-parallel pair plus a single, add the `vllm2` profile:
-
-```bash
-COMPOSE_PROFILES=gpu,vllm2
-VLLM_GPUS=0,1   TENSOR_PARALLEL=2      # instance 1: two cards, split
-VLLM_2_GPUS=2                          # instance 2: the third card
-```
-
-`vllm-2` inherits the same image and the same command from a YAML anchor — only
-its environment differs, and all of it is in `.env`. The gateway pools both from
-the profile alone, so there's nothing to add to `GPU_PEERS`. Still one `.env`,
-still one `docker compose up -d`, and you never name a container.
-
-Check the model fits on one card before reaching for it — `docker compose logs
-vllm | grep -i "model weights"`. If it doesn't, the lone card can't serve it and
-fewer cards with `TENSOR_PARALLEL` is the right answer instead. `GPU_PEERS` is the other boxes as `ip:port`, so
-adding a machine is one more entry.
-
-**Ports are required and IPs are the right form.** The port is required because
-which port a peer publishes is that machine's business — guessing it here would
-mean a silent 502 when it differs. IPs because the gateway hands those entries to
-nginx unchanged, and nginx resolves them through the *container's* DNS: Docker's
-resolver, which forwards to the host's nameservers but does **not** read the
-host's `/etc/hosts`. So a hostname needs real DNS; one in `/etc/hosts` on the
-gateway machine fails with `host not found in upstream` and nginx won't start.
-
-Everything else is normal compose — `docker compose down`, `ps`,
-`logs -f vllm`, `exec postgres psql -U agents`, `restart infer`.
-
-```
-  gpu profile                           dev profile
-  ───────────                           ───────────
-  vllm    the LLM                       postgres + redis   containers
-  infer   embed · rerank · ASR          api + web          host, reloading
-     ▲                                     │
-     └───── LLM_BASE_URL ──────────────────┘
-            INFER_BASE_URL
-```
-
-`api` and `web` are deliberately **not** in compose: they're what you edit, so
-they run on the host under a reloader. There are no shell scripts — those two,
-and every task, are `package.json` entries. `pnpm run` lists them all.
-
-### On a GPU server
-
-Needs Docker with the NVIDIA container runtime, one GPU with ≥40GB free for the
-default 32B AWQ model, and ~35GB of disk for weights.
-
-```bash
-docker compose up -d
-docker compose logs -f vllm
-```
-
-Weights download on first start — ~30GB before the GPU is touched at all, which
-is why `nvidia-smi` stays empty for a while. There is nothing to pre-fetch with —
-`docker compose logs -f vllm` is how you watch it.
-
-#### "I set GPU 1, but it says GPU 0"
-
-That's `CUDA_VISIBLE_DEVICES` doing its job. Setting `VLLM_GPUS=1` exposes
-*only* physical GPU 1 to the process, and CUDA renumbers it to index `0`. So
-vLLM, torch and `nvidia-smi` **inside** the container all say `0` whichever
-physical card it is — the logs cannot tell you which GPU you got.
-
-```bash
-nvidia-smi                                             # host: which card holds the memory
-docker compose exec vllm printenv CUDA_VISIBLE_DEVICES
-```
-
-If that disagrees with `.env`, the container predates your edit — `docker
-restart` never re-reads compose config, only `up -d` recreates. Note also that
-`INFER_GPUS` defaults to `1` while `VLLM_GPUS` defaults to `0`, so the two land
-on different cards unless you set both.
-
-#### More than one GPU machine
-
-Every machine is described entirely by its own `.env`, and they all run the same
-bare `docker compose up -d`:
-
-```bash
-# machine A — the one developers point at
-COMPOSE_PROFILES=gpu
-BIND_ADDR=0.0.0.0
-GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601
-
-# machines B and C — model servers, nothing else
-COMPOSE_PROFILES=model
-BIND_ADDR=0.0.0.0
-```
-
-B and C name nothing — not each other, not A. They serve a model on `VLLM_PORT`
-and wait to be pooled.
-
-A's gateway becomes a `least_conn` pool over all three, dropping a server after
-3 failures. Nothing else changes: the application still only knows
-`LLM_BASE_URL`, and developers still set one `GPU_HOST`.
-
-Adding machine D is `COMPOSE_PROFILES=model` there, one more name in A's
-`GPU_PEERS`, and `docker compose up -d llm-gateway` on A — measured at under
-a second, with no model restarted anywhere. Note `docker compose restart` does
-**not** work for this: it reuses the container, and environment is fixed when a
-container is created, not when it starts.
-
-##### What you still can't do
-
-Have machine D register *itself*. nginx OSS has no dynamic-upstream API, and it
-refuses runtime DNS resolution together with `least_conn` (`resolving names at
-run time requires upstream … to be in shared memory` — that's nginx Plus). With
-DNS you control, a single `GPU_PEERS=vllm-pool.internal:8601` re-resolves
-every 10s and is fully automatic, at the cost of round-robin instead of
-`least_conn` and no per-server health tracking. HAProxy does both, if you ever
-have a registry worth pointing it at; a handful of static boxes isn't one.
-
-### On a developer's machine
-
-```bash
-cp .env.example .env      # ships with COMPOSE_PROFILES=dev
-$EDITOR .env              # set GPU_HOST
-pnpm install && pnpm venv # node deps, then the python .venv
-pnpm dev
-```
-
-`pnpm dev` starts postgres and redis, migrates, seeds the admin, then runs `api`
-and `web` together with reload. Ctrl-C stops both and leaves the containers up,
-so the next run takes seconds. Re-run `pnpm venv` when
-`docker/requirements/*.txt` changes; nothing detects that for you.
-
-If the GPU box keeps its ports on loopback (the default — neither `vllm` nor
-`infer` authenticates), tunnel to it and leave `GPU_HOST=localhost`:
-
-```bash
-ssh -N -L 8602:localhost:8602 -L 8603:localhost:8603 <gpu-host>
-```
+`pnpm dev` migrates, seeds `dev@agents.dev / devdev`, then runs both host
+processes. Ctrl-C stops them and leaves the containers up.
 
 | | |
 |---|---|
-| `pnpm up` | just the containers — then run `api` from your IDE against `.venv/bin/python`, working dir `apps/` |
+| `pnpm up` | just the containers, for running `api` from an IDE against `.venv/bin/python`, working dir `apps/` |
 | `pnpm api` / `pnpm web` | one process, for two terminals |
-| `docker compose up -d worker` | add the ingest worker (LibreOffice/OCR/ffmpeg — big image, only for ingest work) |
+| `COMPOSE_PROFILES=dev,ingest` | also start the `worker` container — a big image, only needed for ingest work |
 
-[**docs/dev-topology.html**](docs/dev-topology.html) draws all of it — what each
-service is, which profile starts it, and every port.
+### Adding GPU capacity
+
+| You want | Do this |
+|---|---|
+| more copies on machines you have | `kubectl -n agents scale deploy/vllm --replicas=3` |
+| a whole new machine | `sudo k8s/setup.sh agent <ip> <token>`, then scale |
+| a model too big for one card | raise `nvidia.com/gpu` |
+
+Adding a machine changes no configuration anywhere: it registers itself, the
+device plugin advertises its cards, and the Service adds the pod once it passes
+readiness. No `.env` edit on any laptop, nothing restarted.
+
+[**docs/dev-topology.html**](docs/dev-topology.html) draws all of it.
 
 ### Stopping, restarting, starting over
 
 ```bash
 docker compose ps                 # what's up
-docker compose restart infer      # bounce one service, same config
+docker compose restart redis      # bounce one service, same config
 docker compose up -d              # recreate whatever changed in .env
 docker compose down               # remove the containers; data survives
 ```
 
-`restart` does **not** re-read `.env` or `compose.yaml` — only `up -d` recreates a
-container, which is what picks up an edit. And because Postgres and Redis are
-bind mounts under `data/` rather than named volumes, `down -v` does *not* delete
-them. To actually start from an empty database:
+`restart` does **not** re-read `.env` — only `up -d` recreates a container, which
+is what picks up an edit. And because Postgres and Redis are bind mounts under
+`data/` rather than named volumes, `down -v` does *not* delete them. To start from
+an empty database:
 
 ```bash
 docker compose down && rm -rf data/postgres && docker compose up -d && pnpm migrate && pnpm seed
@@ -280,49 +162,16 @@ pnpm bboxes <document-id>
 onto the rendered page so you can *see* whether highlights land on the right
 text. Numbers can be self-consistent and still point at the wrong line.
 
-### Kubernetes, if the GPU side outgrows this
-
-[`k8s/`](k8s/) has manifests that replace **the GPU side only** — a `Service` in
-front of N `vllm` pods does what `llm-gateway` does, so adopting it deletes the
-gateway, its nginx template and entrypoint, `GPU_PEERS`, and the `vllm2` profile.
-Roughly 150 lines of compose, config and shell for ~15 lines of Service, and the
-scheduler assigns cards instead of you.
-
-The dev side stays `docker compose` — a laptop is not a cluster. Developers point
-`GPU_HOST` at any node and change nothing else.
-
-It's worth it when hand-assigning GPUs becomes the bottleneck: about five or more
-GPU nodes, nodes that come and go, or a second team wanting a share with quotas.
-For three static boxes, the compose path is less machinery for the same result.
-Untested against real GPUs — see the caveats in `k8s/README.md`, including the
-`/transcribe` shared-mount problem that has to be fixed first.
-
 ### Configuration is only what you decide
 
-`.env` holds `COMPOSE_PROFILES` plus a handful of values. Anything absent falls
-back to a default that lives next to the code it affects:
-
-**There is one file you edit: `.env`, at the repo root**, and it is grouped by the
-container each value configures. Compose interpolates it, `apps/api/app/config.py`
-reads it by absolute path, and nothing else on any machine needs touching —
-including a GPU box that only serves the model.
-
-The one exception, called out in the file: `pnpm` does not load `.env`, so the
-host ports for `api` and `web` are arguments in `package.json` (8000 and 3000).
-Override those inline — `API_PORT=8123 pnpm api`.
-
-Everything absent from it falls back to a default that lives next to the code it
-affects, and none of those are meant to be edited per machine:
-
-| Where the default lives | What it covers |
+| Where it lives | What it covers |
 |---|---|
-| `compose.*.yml` — `${VAR:-default}` | paths, ports, GPU indices, model ids, vLLM flags |
-| `apps/api/app/config.py` — the `Settings` class | OCR, chunking, retrieval, agent and topic tuning, each beside the measurement that chose it |
-| `package.json` — the `scripts` block | every command; `pnpm run` prints it |
-| `apps/ruff.toml`, `apps/api/alembic.ini`, `docker/requirements/*.txt` | tool and dependency config, which lives next to what it configures |
-| `apps/api/app/config.py` — the `_assemble` validator | `DATABASE_URL`, `REDIS_URL`, `LLM_BASE_URL`, `INFER_BASE_URL`, built from the ports and `GPU_HOST` so they can't disagree |
-
-To override any `Settings` field, add it to `.env` as `UPPER_CASE`.
+| `.env` — two values | `COMPOSE_PROFILES`, `GPU_HOST` |
+| `k8s/vllm.yaml` | `replicas` and `nvidia.com/gpu` — the entire GPU layout |
+| `k8s/config.yaml` | model ids, context length, VRAM share, embed/rerank/ASR models |
+| `compose.*.yml` — `${VAR:-default}` | the dev containers' ports and paths |
+| `apps/api/app/config.py` — `Settings` | OCR, chunking, retrieval, agent and topic tuning, each beside the measurement that chose it |
+| `package.json` — `scripts` | every command; `pnpm run` prints it |
 
 ---
 
@@ -348,16 +197,16 @@ Guided JSON remains the fallback for a model with no usable tool-call parser.
 ## Layout
 
 ```
-compose.yaml       includes the six below; COMPOSE_PROFILES in .env picks what runs
-compose.gateway.yml   llm-gateway        compose.postgres.yml  postgres
-compose.vllm.yml      vllm, vllm-2       compose.redis.yml     redis
-compose.infer.yml     infer              compose.worker.yml    worker
+compose.yaml       includes the three below; COMPOSE_PROFILES in .env picks what runs
+compose.postgres.yml  postgres    compose.worker.yml  worker
+compose.redis.yml     redis
+k8s/               the GPU side: setup.sh, vllm, infer — see k8s/README.md
 package.json   every task — pnpm run
 apps/
   api/    FastAPI + agent + ingest pipeline   (app/agent/citations.py is the core protocol)
   infer/  GPU sidecar: embeddings, reranking, ASR
   web/    Next.js UI
-docker/   base.Dockerfile, nginx gateway template, requirements
+docker/   base.Dockerfile, requirements
 scripts/  make_samples.py, run inside the worker image
 docs/     STATUS.md — what works, what remains; dev-topology.html — the two-machine dev split
 ```
