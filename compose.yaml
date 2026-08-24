@@ -68,7 +68,7 @@ services:
     restart: unless-stopped
     environment:
       # The OTHER GPU machines, by hostname or IP — this machine's own vllm is
-      # always in the pool, so it is never listed. GPU_PEERS=10.0.0.12,10.0.0.13 makes
+      # always in the pool, so it is never listed. GPU_PEERS=10.0.0.12:8601 makes
       # this a least_conn pool over three.
       GPU_PEERS: ${GPU_PEERS:-}
       VLLM_PORT: ${VLLM_PORT:-8601}

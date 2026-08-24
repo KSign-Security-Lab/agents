@@ -89,21 +89,22 @@ axes handle that, and neither adds a service:
 # more cards on THIS machine — vLLM does it inside the one server
 VLLM_GPUS=0,1,2,3   TENSOR_PARALLEL=2   DATA_PARALLEL=2
 
-# more machines — the others' IPs; this machine's own vllm is always included
-GPU_PEERS=10.0.0.12,10.0.0.13
+# more machines — the others' ip:port; this machine's own vllm is always included
+GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601
 ```
 
 `TENSOR_PARALLEL` splits one model across N cards; `DATA_PARALLEL` runs N copies
 and load-balances between them. They multiply, and the product should equal the
-number of cards you listed. `GPU_PEERS` names the other boxes — each gets
-`VLLM_PORT` (8601) unless you write `10.0.0.12:9000` — so adding a machine is one
-more entry.
+number of cards you listed. `GPU_PEERS` is the other boxes as `ip:port`, so
+adding a machine is one more entry.
 
-**Use IPs there.** The gateway hands those entries to nginx unchanged, and nginx
-resolves them through the *container's* DNS: Docker's resolver, which forwards to
-the host's nameservers but does **not** read the host's `/etc/hosts`. So a
-hostname works only with real DNS; putting `gpu-b` in `/etc/hosts` on the gateway
-machine fails with `host not found in upstream` and nginx won't start.
+**Ports are required and IPs are the right form.** The port is required because
+which port a peer publishes is that machine's business — guessing it here would
+mean a silent 502 when it differs. IPs because the gateway hands those entries to
+nginx unchanged, and nginx resolves them through the *container's* DNS: Docker's
+resolver, which forwards to the host's nameservers but does **not** read the
+host's `/etc/hosts`. So a hostname needs real DNS; one in `/etc/hosts` on the
+gateway machine fails with `host not found in upstream` and nginx won't start.
 
 Everything else is normal compose — `docker compose down`, `ps`,
 `logs -f vllm`, `exec postgres psql -U agents`, `restart infer`.
@@ -162,7 +163,7 @@ bare `docker compose up -d`:
 # machine A — the one developers point at
 COMPOSE_PROFILES=gpu
 BIND_ADDR=0.0.0.0
-GPU_PEERS=10.0.0.12,10.0.0.13
+GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601
 
 # machines B and C — model servers, nothing else
 COMPOSE_PROFILES=model
@@ -187,7 +188,7 @@ container is created, not when it starts.
 Have machine D register *itself*. nginx OSS has no dynamic-upstream API, and it
 refuses runtime DNS resolution together with `least_conn` (`resolving names at
 run time requires upstream … to be in shared memory` — that's nginx Plus). With
-DNS you control, a single `GPU_PEERS=vllm-pool.internal` re-resolves
+DNS you control, a single `GPU_PEERS=vllm-pool.internal:8601` re-resolves
 every 10s and is fully automatic, at the cost of round-robin instead of
 `least_conn` and no per-server health tracking. HAProxy does both, if you ever
 have a registry worth pointing it at; a handful of static boxes isn't one.
@@ -264,9 +265,14 @@ text. Numbers can be self-consistent and still point at the wrong line.
 `.env` holds `COMPOSE_PROFILES` plus a handful of values. Anything absent falls
 back to a default that lives next to the code it affects:
 
-**There is one file you edit: `.env`, at the repo root.** Compose interpolates it,
-`apps/api/app/config.py` reads it by absolute path, and nothing else on any
-machine needs touching — including a GPU box that only serves the model.
+**There is one file you edit: `.env`, at the repo root**, and it is grouped by the
+container each value configures. Compose interpolates it, `apps/api/app/config.py`
+reads it by absolute path, and nothing else on any machine needs touching —
+including a GPU box that only serves the model.
+
+The one exception, called out in the file: `pnpm` does not load `.env`, so the
+host ports for `api` and `web` are arguments in `package.json` (8000 and 3000).
+Override those inline — `API_PORT=8123 pnpm api`.
 
 Everything absent from it falls back to a default that lives next to the code it
 affects, and none of those are meant to be edited per machine:

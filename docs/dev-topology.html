@@ -512,7 +512,7 @@
                 <td><span class="svc svc-gpu">llm-gateway</span></td>
                 <td class="where">nginx · :8602</td>
                 <td>The one URL the application knows. Whether there's one replica behind it or
-                three is <code>GPU_PEERS</code> in <code>.env</code> — the IPs of the
+                three is <code>GPU_PEERS</code> in <code>.env</code> — the <code>ip:port</code> of the
                 <em>other</em> GPU machines, which it pools with <code>least_conn</code> alongside
                 its own. Use IPs: entries reach nginx unchanged, and a hostname would be resolved by
                 the container's DNS, which never reads the host's <code>/etc/hosts</code>. The

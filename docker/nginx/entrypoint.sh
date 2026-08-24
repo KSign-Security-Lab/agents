@@ -9,28 +9,30 @@
 # write that themselves meant one line mixing a service name on an internal port
 # with hostnames on a published port, which is a needless thing to have to know.
 #
-#   GPU_PEERS unset               -> just this machine
-#   GPU_PEERS=10.0.0.12,10.0.0.13 -> plus two others, each on VLLM_PORT
-#   GPU_PEERS=10.0.0.12:9000      -> ...on a port of its own, if one differs
+#   GPU_PEERS unset                         -> just this machine
+#   GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601 -> plus those two
 #
-# Entries are passed to nginx unchanged, so IPs are the safe form: a hostname is
-# resolved by the CONTAINER's DNS, which forwards to the host's nameservers but
-# never reads the host's /etc/hosts. Blank entries and spaces are ignored.
+# The port is required, not defaulted: which port a peer publishes is that
+# machine's business, and guessing it here would mean a silent 502 when it
+# differs. Entries are passed to nginx unchanged, so use IPs — a hostname is
+# resolved by the CONTAINER's DNS, which never reads the host's /etc/hosts.
 set -eu
 
 TMP="${TMPDIR:-/tmp}"
 CONF_DIR="${CONF_DIR:-/etc/nginx/conf.d}"
 TMPL="${TMPL:-/etc/nginx/templates/llm.conf.tmpl}"
 
-PEER_PORT="${VLLM_PORT:-8601}"
+# This machine's own vllm, as a sibling container on its internal port. Never
+# written down: wherever this gateway runs, the gpu profile put a vllm with it.
 LOCAL="vllm:8000"
 
 PEERS=""
 for peer in $(printf '%s' "${GPU_PEERS:-}" | tr -d '[:space:]' | tr ',' ' '); do
   case "$peer" in
-    "")   continue ;;
-    *:*)  PEERS="$PEERS,$peer" ;;            # explicit port
-    *)    PEERS="$PEERS,$peer:$PEER_PORT" ;; # default port
+    "") continue ;;
+    *:[0-9]*) PEERS="$PEERS,$peer" ;;
+    *) echo "llm-gateway: GPU_PEERS entry '$peer' needs a port, e.g. $peer:8601" >&2
+       exit 1 ;;
   esac
 done
 
