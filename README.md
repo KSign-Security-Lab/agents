@@ -224,10 +224,16 @@ Guided JSON remains the fallback for a model with no usable tool-call parser.
 ## Layout
 
 ```
-compose.yaml       includes the three below; COMPOSE_PROFILES in .env picks what runs
-compose.postgres.yml  postgres    compose.worker.yml  worker
-compose.redis.yml     redis
-k8s/               the GPU side: setup.sh, vllm, infer — see k8s/README.md
+setup              the only thing to run on a new machine; it asks which kind
+
+compose.yaml       ─┐  a developer's machine: postgres, redis, and optionally
+compose.postgres.yaml│  the ingest worker. Docker Compose, at the repo root
+compose.redis.yaml   │  because that is the only place it looks for itself.
+compose.worker.yaml ─┘  COMPOSE_PROFILES in .env picks which of them run.
+
+k8s/               ─┐  the GPU machines: vllm and infer as pods, plus the
+                    │  Services in front of them. Kubernetes. Nothing here
+                    ┘  overlaps with the compose files — see k8s/README.md
 package.json   every task — pnpm run
 apps/
   api/    FastAPI + agent + ingest pipeline   (app/agent/citations.py is the core protocol)

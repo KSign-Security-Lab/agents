@@ -21,9 +21,9 @@ name: agents
 # resolve against THAT file's directory, so a volume of "./data" only means the
 # repo root while the file is at the repo root.
 include:
-  - compose.postgres.yml
-  - compose.redis.yml
-  - compose.worker.yml
+  - compose.postgres.yaml
+  - compose.redis.yaml
+  - compose.worker.yaml
 
 networks:
   agents:
