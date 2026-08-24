@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-#  One command for local development.
+#  ./dev — the only entry point that isn't docker compose.
 #
-#    scripts/dev.sh            deps + migrate + seed, then api and web with reload
-#    scripts/dev.sh deps       just Postgres/Redis (for running api in an IDE)
-#    scripts/dev.sh api        just api
-#    scripts/dev.sh web        just web
-#    scripts/dev.sh exec CMD…  one command in the same environment (make test etc.)
+#  Containers are plain compose (`docker compose up -d`, see compose.yaml).
+#  This exists for the two things compose can't do: run api and web on the host
+#  so they hot-reload, and run the code tasks against a .venv your debugger can
+#  attach to. `./dev help` lists everything.
 #
-#  Containers are plain `docker compose` (see compose.yaml); this script exists
-#  only for what compose can't do — run api and web on the host so they reload.
-#  Config is .env at the repo root, the same file compose reads.
+#  Config is .env at the repo root — the same file compose reads.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="$ROOT/.env"
 # No -f and no --profile: naming the services activates their profile.
 COMPOSE="docker compose"
@@ -135,7 +132,39 @@ banner() {
 EOF
 }
 
+usage() {
+  cat <<'EOF'
+./dev                    postgres+redis, migrate, seed, then api and web reloading
+./dev deps               containers + migrate + seed only, to run api in an IDE
+./dev api                just api          ./dev web    just web
+
+./dev test               pytest apps/api/tests
+./dev fmt                ruff check --fix (config in apps/ruff.toml)
+./dev migrate            alembic upgrade head
+./dev revision "add x"   autogenerate a migration
+./dev seed               create/reset the admin account
+./dev eval               answer + citation accuracy on the Korean gold set
+./dev exec CMD…          anything else, in the same venv and environment
+
+Need the worker image (LibreOffice, OCR, ffmpeg):
+./dev samples            generate Korean sample documents
+./dev ingest FILE        ingest one local file
+./dev bboxes DOC_ID      draw stored bboxes onto the pages as PNGs
+
+Containers are docker compose:
+  docker compose up -d | down | ps | logs -f <service>
+  docker compose config --profiles      what this machine could run
+EOF
+}
+
+# Tasks needing LibreOffice/OCR go to the worker container; that image is why
+# they aren't in the venv.
+in_worker() { $COMPOSE up -d --wait worker >/dev/null && $COMPOSE exec -T worker "$@"; }
+
 case "$TARGET" in
+  help|-h|--help)
+    usage
+    ;;
   deps)
     start_deps; ensure_venv; migrate_and_seed
     step "deps ready — point your IDE at $VENV/bin/python, working dir $ROOT/apps"
@@ -158,9 +187,35 @@ case "$TARGET" in
     ;;
   exec)
     shift
-    [ $# -gt 0 ] || die "usage: scripts/dev.sh exec <command> [args...]"
-    ensure_venv
-    run_py "$@"
+    [ $# -gt 0 ] || die "usage: ./dev exec <command> [args...]"
+    ensure_venv; run_py "$@"
     ;;
-  *) die "unknown target '$TARGET' (expected: all | deps | api | web | exec)" ;;
+
+  test)     ensure_venv; run_py pytest api/tests -q "${@:2}" ;;
+  # `ruff format` is deliberately not run here: it would rewrite ~3800 lines in
+  # one go, which deserves its own commit rather than riding along with a lint fix.
+  fmt)      ensure_venv; run_py ruff check --fix api ;;
+  migrate)  ensure_venv; run_py alembic -c api/alembic.ini upgrade head ;;
+  revision)
+    [ -n "${2:-}" ] || die 'usage: ./dev revision "add x"'
+    ensure_venv; run_py alembic -c api/alembic.ini revision --autogenerate -m "$2"
+    ;;
+  seed)     ensure_venv; run_py python -m api.scripts.seed ;;
+  eval)     ensure_venv; run_py python -m api.scripts.run_eval ;;
+
+  samples)
+    $COMPOSE run --rm --no-deps -v "$ROOT:/work" -w /work \
+      worker python scripts/make_samples.py samples
+    ;;
+  ingest)
+    [ -n "${2:-}" ] || die "usage: ./dev ingest <path>"
+    in_worker python -m api.scripts.ingest_local "/storage/../$2"
+    ;;
+  bboxes)
+    [ -n "${2:-}" ] || die "usage: ./dev bboxes <document-id>"
+    in_worker python -m api.scripts.citation_check "$2"
+    echo "==> wrote ${DATA_ROOT#./}/out/ — open the PNGs and check the boxes cover the right text"
+    ;;
+
+  *) die "unknown command '$TARGET' — try: ./dev help" ;;
 esac

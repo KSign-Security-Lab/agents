@@ -68,7 +68,6 @@ There are four profiles. You never have to guess which — compose lists them:
 ```bash
 docker compose config --profiles     # every profile this file defines
 docker compose config --services     # what your .env starts right now
-make help                            # prints both, plus the host-side tasks
 ```
 
 | Profile | Starts | Add it when |
@@ -104,7 +103,8 @@ Everything else is normal compose — `docker compose down`, `ps`,
 ```
 
 `api` and `web` are deliberately **not** in compose: they're what you edit, so
-they run on the host under a reloader, which is what `make dev` is for.
+they run on the host under a reloader. That, plus the code tasks, is the one
+script in this repo — `./dev`. Everything else is compose.
 
 ### On a GPU server
 
@@ -117,8 +117,8 @@ docker compose logs -f vllm-a
 ```
 
 Weights download on first start — ~30GB before the GPU is touched at all, which
-is why `nvidia-smi` stays empty for a while. `make pull-models` fetches them
-ahead of time.
+is why `nvidia-smi` stays empty for a while. `scripts/pull_models.sh` fetches
+them ahead of time.
 
 #### "I set GPU 1, but it says GPU 0"
 
@@ -142,12 +142,13 @@ on different cards unless you set both.
 ```bash
 cp .env.example .env      # ships with COMPOSE_PROFILES=dev
 $EDITOR .env              # set GPU_HOST
-make dev
+./dev
 ```
 
-`make dev` starts postgres and redis, applies migrations, seeds the admin, then
-runs `api` and `web` with reload and prints the URLs and login. Ctrl-C stops the
-two host processes and leaves the containers up, so the next run takes seconds.
+`./dev` starts postgres and redis, applies migrations, seeds the admin, then runs
+`api` and `web` with reload and prints the URLs and login. Ctrl-C stops the two
+host processes and leaves the containers up, so the next run takes seconds.
+`./dev help` lists the rest.
 
 If the GPU box keeps its ports on loopback (the default — neither `vllm` nor
 `infer` authenticates), tunnel to it and leave `GPU_HOST=localhost`:
@@ -158,28 +159,29 @@ ssh -N -L 8602:localhost:8602 -L 8603:localhost:8603 <gpu-host>
 
 | | |
 |---|---|
-| `make dev S=deps` | containers only — then run `api` from your IDE against `.venv/bin/python`, working dir `apps/` |
-| `make dev S=api` / `S=web` | one process, for two terminals |
-| `INGEST=1 make dev` | also start the `worker` container (LibreOffice/OCR/ffmpeg — big image, only for ingest work) |
+| `./dev deps` | containers only — then run `api` from your IDE against `.venv/bin/python`, working dir `apps/` |
+| `./dev api` / `./dev web` | one process, for two terminals |
+| `INGEST=1 ./dev` | also start the `worker` container (LibreOffice/OCR/ffmpeg — big image, only for ingest work) |
 
 [**docs/dev-topology.html**](docs/dev-topology.html) draws all of it — what each
 service is, which profile starts it, and every port.
 
 ### Working on the code
 
-Against the dev containers, using the `.venv` that `make dev` creates:
+Against the dev containers, using the `.venv` that `./dev` creates:
 
 ```bash
-make test           # 72 unit tests
-make fmt            # ruff, config in apps/ruff.toml
-make migrate        # make revision M="add x" to generate one
-make eval           # answer + citation accuracy on the Korean gold set
-make samples        # generate Korean test documents (uses the worker image)
-make ingest FILE=samples/2026_공급계약서.pdf
-make citation-check DOC=<uuid>
+./dev test                    # 72 unit tests
+./dev fmt                     # ruff, config in apps/ruff.toml
+./dev migrate                 # ./dev revision "add x" to generate one
+./dev eval                    # answer + citation accuracy on the Korean gold set
+./dev samples                 # Korean test documents (uses the worker image)
+./dev ingest samples/2026_공급계약서.pdf
+./dev bboxes <document-id>
+./dev exec pytest api/tests/test_citations.py -x    # anything else
 ```
 
-`make citation-check` is the important one: it draws every stored bounding box
+`./dev bboxes` is the important one: it draws every stored bounding box
 onto the rendered page so you can *see* whether highlights land on the right
 text. Numbers can be self-consistent and still point at the wrong line.
 
@@ -192,7 +194,7 @@ back to a default that lives next to the code it affects:
 |---|---|
 | `compose.yaml` — `${VAR:-default}` | paths, ports, GPU indices, model ids, vLLM flags |
 | `apps/api/app/config.py` — the `Settings` class | OCR, chunking, retrieval, agent and topic tuning, each beside the measurement that chose it |
-| `scripts/dev.sh` | every dev URL, derived from `GPU_HOST` |
+| `./dev` | every dev URL, derived from `GPU_HOST` |
 
 To override any `Settings` field, add it to `.env` as `UPPER_CASE`.
 
@@ -221,12 +223,13 @@ Guided JSON remains the fallback for a model with no usable tool-call parser.
 
 ```
 compose.yaml   every container, selected by COMPOSE_PROFILES in .env
+dev            the host processes and code tasks — ./dev help
 apps/
   api/    FastAPI + agent + ingest pipeline   (app/agent/citations.py is the core protocol)
   infer/  GPU sidecar: embeddings, reranking, ASR
   web/    Next.js UI
 docker/   base.Dockerfile, nginx gateway template, requirements
-scripts/  dev.sh (the host processes + code tasks), model download, samples
+scripts/  model download, sample generation
 docs/     STATUS.md — what works, what remains; dev-topology.html — the two-machine dev split
 ```
 

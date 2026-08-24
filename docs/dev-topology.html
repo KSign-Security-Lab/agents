@@ -325,7 +325,7 @@
 
         <!-- docker band -->
         <rect class="band" x="158" y="268" width="452" height="188" rx="8"></rect>
-        <text class="svg-band-label" x="174" y="288">DOCKER · make dev</text>
+        <text class="svg-band-label" x="174" y="288">DOCKER · docker compose up -d</text>
 
         <rect class="node" x="176" y="300" width="210" height="60" rx="6"></rect>
         <text class="svg-title" x="192" y="326">postgres</text>
@@ -510,7 +510,7 @@ $EDITOR .env    <span class="c"># COMPOSE_PROFILES=dev, GPU_HOST</span></pre>
 ssh -N -L 8602:localhost:8602 \
        -L 8603:localhost:8603 gpu-host
 
-<span class="k">make</span> dev</pre>
+./dev</pre>
         </div>
         <p class="who">Starts the containers, migrates, seeds <span class="inline">dev@agents.dev / devdev</span>,
         then runs <span class="inline">api</span> and <span class="inline">web</span> with reload. Ctrl-C stops
@@ -530,27 +530,27 @@ ssh -N -L 8602:localhost:8602 \
         </thead>
         <tbody>
           <tr>
-            <td><code>make dev</code></td>
+            <td><code>./dev</code></td>
             <td>containers + api + web</td>
             <td>the normal case</td>
           </tr>
           <tr>
-            <td><code>make dev S=deps</code></td>
+            <td><code>./dev deps</code></td>
             <td>containers only, migrated and seeded</td>
             <td>you want to launch <code>api</code> from your IDE — point it at <code>.venv/bin/python</code>, working dir <code>apps/</code></td>
           </tr>
           <tr>
-            <td><code>make dev S=api</code></td>
+            <td><code>./dev api</code></td>
             <td>just api</td>
             <td>two terminals, or web is already running</td>
           </tr>
           <tr>
-            <td><code>make dev S=web</code></td>
+            <td><code>./dev web</code></td>
             <td>just web</td>
             <td>frontend-only work</td>
           </tr>
           <tr>
-            <td><code>INGEST=1 make dev</code></td>
+            <td><code>INGEST=1 ./dev</code></td>
             <td>the above, plus the <code>worker</code> container</td>
             <td>you're touching ingest — it's a big image, so it stays opt-in</td>
           </tr>
@@ -594,7 +594,7 @@ ssh -N -L 8602:localhost:8602 \
 
   <footer>
     Config is one file: <code>.env</code> at the repo root, copied from <code>.env.example</code>.
-    Compose reads it, and so does <code>scripts/dev.sh</code>.
+    Compose reads it, and so does <code>./dev</code>.
   </footer>
 
 </div>

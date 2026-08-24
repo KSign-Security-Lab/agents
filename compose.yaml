@@ -12,7 +12,7 @@
 #      COMPOSE_PROFILES=gpu,dev       both roles on one box
 #
 #  api and web are NOT here on purpose: they run on the host with hot reload,
-#  started by scripts/dev.sh, because that is the point of developing them.
+#  started by ./dev, because that is the point of developing them.
 #
 #  gpu        llm-gateway + vllm-a + infer      needs CUDA
 #  dev        postgres + redis                   no GPU, runs anywhere
@@ -188,7 +188,7 @@ services:
     networks: [agents]
 
   # Opt-in: only needed to debug ingest (LibreOffice / OCR / ffmpeg are why this
-  # image is large, and why it isn't started by default). `make dev INGEST=1`.
+  # image is large, and why it isn't started by default). `INGEST=1 ./dev`.
   worker:
     profiles: ["ingest"]
     build:
