@@ -89,14 +89,15 @@ axes handle that, and neither adds a service:
 # more cards on THIS machine — vLLM does it inside the one server
 VLLM_GPUS=0,1,2,3   TENSOR_PARALLEL=2   DATA_PARALLEL=2
 
-# cards on OTHER machines — the gateway pools a list of addresses
-LLM_UPSTREAMS=vllm:8000,gpu-b:8601,gpu-c:8601
+# more machines — name the others; this machine's own vllm is always included
+GPU_PEERS=gpu-b,gpu-c
 ```
 
 `TENSOR_PARALLEL` splits one model across N cards; `DATA_PARALLEL` runs N copies
 and load-balances between them. They multiply, and the product should equal the
-number of cards you listed. `LLM_UPSTREAMS` entries can be sibling containers or
-remote hosts — the gateway doesn't care, so adding a machine is one more entry.
+number of cards you listed. `GPU_PEERS` takes hostnames or IPs — each gets
+`VLLM_PORT` (8601) unless you write `gpu-b:9000` — so adding a machine is one
+more name.
 
 Everything else is normal compose — `docker compose down`, `ps`,
 `logs -f vllm`, `exec postgres psql -U agents`, `restart infer`.
@@ -155,19 +156,22 @@ bare `docker compose up -d`:
 # machine A — the one developers point at
 COMPOSE_PROFILES=gpu
 BIND_ADDR=0.0.0.0
-LLM_UPSTREAMS=vllm:8000,gpu-b:8601,gpu-c:8601
+GPU_PEERS=gpu-b,gpu-c
 
 # machines B and C — model servers, nothing else
 COMPOSE_PROFILES=model
 BIND_ADDR=0.0.0.0
 ```
 
+B and C name nothing — not each other, not A. They serve a model on `VLLM_PORT`
+and wait to be pooled.
+
 A's gateway becomes a `least_conn` pool over all three, dropping a server after
 3 failures. Nothing else changes: the application still only knows
 `LLM_BASE_URL`, and developers still set one `GPU_HOST`.
 
-Adding machine D is `COMPOSE_PROFILES=model` there, one more entry in A's
-`LLM_UPSTREAMS`, and `docker compose up -d llm-gateway` on A — measured at under
+Adding machine D is `COMPOSE_PROFILES=model` there, one more name in A's
+`GPU_PEERS`, and `docker compose up -d llm-gateway` on A — measured at under
 a second, with no model restarted anywhere. Note `docker compose restart` does
 **not** work for this: it reuses the container, and environment is fixed when a
 container is created, not when it starts.
@@ -177,7 +181,7 @@ container is created, not when it starts.
 Have machine D register *itself*. nginx OSS has no dynamic-upstream API, and it
 refuses runtime DNS resolution together with `least_conn` (`resolving names at
 run time requires upstream … to be in shared memory` — that's nginx Plus). With
-DNS you control, a single `LLM_UPSTREAMS=vllm-pool.internal:8601` re-resolves
+DNS you control, a single `GPU_PEERS=vllm-pool.internal` re-resolves
 every 10s and is fully automatic, at the cost of round-robin instead of
 `least_conn` and no per-server health tracking. HAProxy does both, if you ever
 have a registry worth pointing it at; a handful of static boxes isn't one.

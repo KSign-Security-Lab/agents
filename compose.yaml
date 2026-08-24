@@ -25,8 +25,8 @@
 #
 #  Scaling is NOT expressed as profiles, because that does not extend past two.
 #  More GPUs on this machine: TENSOR_PARALLEL / DATA_PARALLEL on the one vllm
-#  service. GPUs on other machines: list them in LLM_UPSTREAMS and the gateway
-#  pools them. Either way the application still only knows LLM_BASE_URL.
+#  service. More machines: name them in GPU_PEERS and the gateway pools them.
+#  Either way the application still only knows LLM_BASE_URL.
 # ---------------------------------------------------------------------------
 name: agents
 
@@ -67,10 +67,11 @@ services:
     image: nginx:alpine
     restart: unless-stopped
     environment:
-      # Comma-separated host:port list. One entry is the normal case; more than
-      # one makes this a least_conn pool, and the entries do not have to be on
-      # this machine — LLM_UPSTREAMS=gpu-a:8601,gpu-b:8601 pools two servers.
-      LLM_UPSTREAMS: ${LLM_UPSTREAMS:-vllm:8000}
+      # The OTHER GPU machines, by hostname or IP — this machine's own vllm is
+      # always in the pool, so it is never listed. GPU_PEERS=gpu-b,gpu-c makes
+      # this a least_conn pool over three.
+      GPU_PEERS: ${GPU_PEERS:-}
+      VLLM_PORT: ${VLLM_PORT:-8601}
     volumes:
       - ./docker/nginx/llm-gateway.conf.tmpl:/etc/nginx/templates/llm.conf.tmpl:ro
       - ./docker/nginx/entrypoint.sh:/docker-entrypoint.d/40-render-llm.sh:ro
@@ -90,7 +91,7 @@ services:
     <<: [*vllm, *gpu]
     # Two profiles on purpose, and the only service with more than one: "gpu" is
     # a whole GPU server, "model" is an extra box that serves the model and
-    # nothing else, pooled by another machine's gateway via LLM_UPSTREAMS.
+    # nothing else, pooled by another machine's gateway via its GPU_PEERS.
     profiles: ["gpu", "model"]
     environment:
       CUDA_VISIBLE_DEVICES: ${VLLM_GPUS:-0}

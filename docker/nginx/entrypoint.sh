@@ -1,40 +1,40 @@
 #!/bin/sh
-# Render the vLLM upstream from LLM_UPSTREAMS. Runs from nginx's
-# /docker-entrypoint.d/ before the server starts.
+# Render the vLLM upstream list. Runs from nginx's /docker-entrypoint.d/ before
+# the server starts.
 #
-# LLM_UPSTREAMS is a comma-separated host:port list, and nothing here cares
-# whether those hosts are sibling containers or other machines:
-#   vllm:8000                    the local container (default)
-#   gpu-a:8601,gpu-b:8601        two GPU servers, pooled
+# You only ever name the OTHER machines. This machine's own vllm is always in the
+# pool — the gateway and vllm are both in the `gpu` profile, so wherever this runs
+# there is a local one — and it is reached as the compose service `vllm` on its
+# internal port 8000, which is not the port other machines use. Making people
+# write that themselves meant one line mixing a service name on an internal port
+# with hostnames on a published port, which is a needless thing to have to know.
 #
-# One entry uses a variable proxy_pass so nginx resolves the name per request
-#   and starts even while the model is still loading, instead of dying with
-#   "host not found in upstream" — a 30GB download takes a while.
-# Two or more needs real load balancing, which requires a static upstream block.
-#   Those names must resolve at start-up, which they do: sibling containers are
-#   created together, and remote hosts are ordinary DNS.
+#   GPU_PEERS unset          -> just this machine
+#   GPU_PEERS=gpu-b,gpu-c    -> this machine plus two others, on VLLM_PORT
+#   GPU_PEERS=gpu-b:9000     -> ...on a port of its own, if one differs
 #
-# Substitution is `sed r`, not awk -v: the blocks are multi-line, and awk -v
-# rejects embedded newlines on some awks (BSD), which made this untestable
-# outside the container.
+# Entries may be hostnames or IPs. Blank entries and spaces are ignored.
 set -eu
 
 TMP="${TMPDIR:-/tmp}"
 CONF_DIR="${CONF_DIR:-/etc/nginx/conf.d}"
 TMPL="${TMPL:-/etc/nginx/templates/llm.conf.tmpl}"
 
-# One place for config, and this is not it: LLM_UPSTREAMS comes from .env at the
-# repo root, the same file compose interpolates and apps/api/app/config.py reads.
-#
-# A bind-mounted list file was tried instead, because environment is fixed when a
-# container is created — so an edit could then be applied with `nginx -s reload`,
-# gracefully, without recreating anything. It was dropped: a second config file
-# in a second directory costs more than the reload saves, given `docker compose
-# up -d llm-gateway` recreates this stateless container in well under a second.
-UPSTREAMS=$(printf '%s' "${LLM_UPSTREAMS:-vllm:8000}" | tr -d '[:space:]' \
-            | tr ',' '\n' | grep . | paste -sd, -)
+PEER_PORT="${VLLM_PORT:-8601}"
+LOCAL="vllm:8000"
+
+PEERS=""
+for peer in $(printf '%s' "${GPU_PEERS:-}" | tr -d '[:space:]' | tr ',' ' '); do
+  case "$peer" in
+    "")   continue ;;
+    *:*)  PEERS="$PEERS,$peer" ;;            # explicit port
+    *)    PEERS="$PEERS,$peer:$PEER_PORT" ;; # default port
+  esac
+done
+
+UPSTREAMS="$LOCAL$PEERS"
 COUNT=$(printf '%s' "$UPSTREAMS" | tr ',' '\n' | grep -c . || true)
-[ "$COUNT" -ge 1 ] || { echo "llm-gateway: LLM_UPSTREAMS has no entries" >&2; exit 1; }
+[ "$COUNT" -ge 1 ] || { echo "llm-gateway: no upstreams" >&2; exit 1; }
 
 if [ "$COUNT" -eq 1 ]; then
   MODE="1 backend"
