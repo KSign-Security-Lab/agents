@@ -6,7 +6,8 @@
 #
 #  No -f, no --profile flags. What this machine runs is one line in .env:
 #
-#      COMPOSE_PROFILES=gpu           a GPU server
+#      COMPOSE_PROFILES=gpu           a GPU server: gateway + vllm + infer
+#      COMPOSE_PROFILES=model         an extra GPU box: vllm only
 #      COMPOSE_PROFILES=dev           a developer's machine
 #      COMPOSE_PROFILES=dev,ingest    ...also the ingest worker
 #      COMPOSE_PROFILES=gpu,dev       both roles on one box
@@ -14,7 +15,8 @@
 #  api and web are NOT here on purpose: they run on the host with hot reload,
 #  started by `pnpm dev`, because that is the point of developing them.
 #
-#  gpu        llm-gateway + vllm + infer        needs CUDA
+#  gpu        llm-gateway + vllm + infer        a whole GPU server
+#  model      vllm alone                        an extra GPU box in a pool
 #  dev        postgres + redis                   no GPU, runs anywhere
 #  ingest     worker                             big image; only to debug ingest
 #
@@ -86,7 +88,10 @@ services:
   # — no extra container, no extra profile.
   vllm:
     <<: [*vllm, *gpu]
-    profiles: ["gpu"]
+    # Two profiles on purpose, and the only service with more than one: "gpu" is
+    # a whole GPU server, "model" is an extra box that serves the model and
+    # nothing else, pooled by another machine's gateway via LLM_UPSTREAMS.
+    profiles: ["gpu", "model"]
     environment:
       CUDA_VISIBLE_DEVICES: ${VLLM_GPUS:-0}
       TENSOR_PARALLEL: ${TENSOR_PARALLEL:-1}

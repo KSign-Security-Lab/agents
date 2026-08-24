@@ -74,6 +74,7 @@ docker compose config --services     # what your .env starts right now
 |---|---|---|
 | `dev` | postgres, redis | you're developing — this is the default in `.env.example` |
 | `gpu` | llm-gateway, vllm, infer | the machine has CUDA and serves the models |
+| `model` | vllm alone | an extra GPU box, pooled by the gateway on another machine |
 | `ingest` | worker | you're debugging ingest (big image: LibreOffice, OCR, ffmpeg) |
 
 Combine with commas — `dev,ingest`, or `gpu,dev` for both roles on one box. You
@@ -147,17 +148,31 @@ on different cards unless you set both.
 
 #### More than one GPU machine
 
-Each box runs the same thing — `COMPOSE_PROFILES=gpu` with `BIND_ADDR=0.0.0.0`
-so its `vllm` is reachable on `VLLM_PORT` (8601). Then on whichever box
-developers point at, list them all:
+Every machine is described entirely by its own `.env`, and they all run the same
+bare `docker compose up -d`:
 
 ```bash
+# machine A — the one developers point at
+COMPOSE_PROFILES=gpu
+BIND_ADDR=0.0.0.0
 LLM_UPSTREAMS=vllm:8000,gpu-b:8601,gpu-c:8601
+
+# machines B and C — model servers, nothing else
+COMPOSE_PROFILES=model
+BIND_ADDR=0.0.0.0
 ```
 
-That box's gateway becomes a `least_conn` pool over the lot. Nothing else
-changes: the application still only knows `LLM_BASE_URL`, and adding a fourth
-machine is one more entry in the list.
+A's gateway becomes a `least_conn` pool over all three, dropping a server after
+3 failures. Nothing else changes: the application still only knows
+`LLM_BASE_URL`, and developers still set one `GPU_HOST`.
+
+Adding machine D is `COMPOSE_PROFILES=model` there, one more entry in A's list,
+and `docker compose up -d llm-gateway` on A — measured at under a second, with no
+model restarted anywhere. What you can't do is have D register *itself*: nginx
+OSS has no dynamic-upstream API, and it refuses runtime DNS resolution together
+with `least_conn` (`resolving names at run time requires upstream … to be in
+shared memory` — that's nginx Plus). HAProxy can do both if you ever get a
+registry worth pointing it at; three static boxes aren't one.
 
 ### On a developer's machine
 

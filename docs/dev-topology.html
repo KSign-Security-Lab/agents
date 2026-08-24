@@ -430,7 +430,7 @@
           <text class="svg-sub" x="624" y="141">:8602 · nginx</text>
           <rect class="node" x="608" y="176" width="300" height="54" rx="6"></rect>
           <text class="svg-title" x="624" y="200">vllm</text>
-          <text class="svg-sub" x="624" y="219">:8601 · one service, any card count</text>
+          <text class="svg-sub" x="624" y="219">:8601 · profiles: gpu AND model</text>
           <rect class="node" x="608" y="252" width="300" height="54" rx="6"></rect>
           <text class="svg-title" x="624" y="276">infer</text>
           <text class="svg-sub" x="624" y="295">:8603 · embed · rerank · ASR</text>
@@ -447,20 +447,25 @@
 
           <!-- ============================== thesis ============================ -->
           <text class="svg-title" x="500" y="186" text-anchor="middle">6 services</text>
-          <text class="svg-title" x="500" y="208" text-anchor="middle">3 profiles</text>
-          <text class="svg-sub" x="500" y="240" text-anchor="middle">every service sits</text>
-          <text class="svg-sub" x="500" y="256" text-anchor="middle">in exactly one</text>
-          <text class="svg-sub" x="500" y="272" text-anchor="middle">— no overlap</text>
+          <text class="svg-title" x="500" y="208" text-anchor="middle">4 profiles</text>
+          <text class="svg-sub" x="500" y="240" text-anchor="middle">only vllm belongs</text>
+          <text class="svg-sub" x="500" y="256" text-anchor="middle">to two of them:</text>
+          <text class="svg-sub" x="500" y="272" text-anchor="middle">gpu, and model</text>
         </svg>
       </div>
-      <figcaption>The profiles <strong>partition</strong> the file: six services, three groups, no
-      service in two and none in zero. So a comma-separated list is just a union — picking
-      <span class="inline">gpu,dev</span> starts five containers because those are the five in those
-      two groups. Solid border = a role you can start on its own; dashed = optional. And profiles
-      answer only "what runs here" — they are deliberately <em>not</em> how you scale, because a
-      service per replica stops working at two and can't describe a GPU on another host at all.
-      Nothing runs between the dev side and the gpu side either: in compose they never touch,
-      because the only thing joining them is <span class="inline">api</span>, on your host.</figcaption>
+      <figcaption>A profile answers one question — <em>what runs on this machine</em> — so a
+      comma-separated list is just a union: <span class="inline">gpu,dev</span> starts five
+      containers because those are the five in those two groups. The groups are almost disjoint;
+      the single deliberate overlap is <span class="inline">vllm</span>, which is in
+      <span class="inline">gpu</span> (a whole GPU server) and also in
+      <span class="inline">model</span> (an extra GPU box serving the model alone, pooled by another
+      machine's gateway). That way every machine is described by its own <code>.env</code> and they
+      all run the same bare <code>docker compose up -d</code>. Profiles are deliberately <em>not</em>
+      how you scale, though: a service per replica stops working at two and can't describe a remote
+      GPU at all — that's <span class="inline">TENSOR_PARALLEL</span> /
+      <span class="inline">DATA_PARALLEL</span> and <span class="inline">LLM_UPSTREAMS</span>.
+      Nothing runs between the dev side and the gpu side either; the only thing joining them is
+      <span class="inline">api</span>, on your host.</figcaption>
     </figure>
 
     <div class="tbl" style="margin-top: 28px">
@@ -470,6 +475,7 @@
           <tr><td><code>dev</code></td><td>postgres, redis</td><td>a laptop</td></tr>
           <tr><td><code>dev,ingest</code></td><td>postgres, redis, worker</td><td>…also debugging ingest</td></tr>
           <tr><td><code>gpu</code></td><td>llm-gateway, vllm, infer</td><td>a GPU server — any number of cards</td></tr>
+          <tr><td><code>model</code></td><td>vllm</td><td>an extra GPU box, pooled by another machine's gateway</td></tr>
           <tr><td><code>gpu,dev</code></td><td>all five</td><td>one box doing both</td></tr>
           <tr>
             <td><code>ingest</code></td>
