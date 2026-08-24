@@ -187,11 +187,35 @@ EOF
 fi
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-[ -r "$KUBECONFIG" ] || die "cannot read $KUBECONFIG — run as root on the server machine"
 
-say "node readiness"
-kubectl wait --for=condition=Ready node --all --timeout=180s >/dev/null
+# k3s has only just been asked to start, so give each thing time to appear
+# rather than assuming it already has. `kubectl wait --all` is no help here: on
+# an empty list it fails immediately with "no matching resources found" instead
+# of waiting for the first one, so the node has to exist before we wait on it.
+wait_for() { # wait_for <seconds> <description> <command...>
+  _limit=$1; _what=$2; shift 2
+  _n=0
+  while [ "$_n" -lt "$_limit" ]; do
+    if "$@" >/dev/null 2>&1; then return 0; fi
+    _n=$((_n + 2)); sleep 2
+  done
+  die "timed out after ${_limit}s waiting for $_what.
+      Look at:  systemctl status k3s   journalctl -u k3s -n 50"
+}
+has_a_node() { [ "$(kubectl get nodes -o name 2>/dev/null | wc -l)" -gt 0 ]; }
+
+say "waiting for k3s to come up"
+wait_for 60  "the kubeconfig"        test -r "$KUBECONFIG"
+ok "kubeconfig"
+wait_for 120 "the API server"        kubectl get --raw /readyz
+ok "API server"
+wait_for 120 "this node to register" has_a_node
+ok "node registered"
+kubectl wait --for=condition=Ready node --all --timeout=180s >/dev/null \
+  || die "the node registered but never became Ready.
+      Look at:  kubectl describe node   journalctl -u k3s -n 50"
 kubectl get nodes -o=custom-columns='NAME:.metadata.name,VERSION:.status.nodeInfo.kubeletVersion' | sed 's/^/    /'
+ok "Ready"
 
 say "nvidia RuntimeClass"
 if kubectl get runtimeclass nvidia >/dev/null 2>&1; then
@@ -208,6 +232,8 @@ if kubectl -n kube-system get ds nvidia-device-plugin-daemonset >/dev/null 2>&1;
 else
   [ "$MODE" = check ] && die "device plugin not installed. Run: sudo ./setup server"
   kubectl apply -f "https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/$PLUGIN_VERSION/deployments/static/nvidia-device-plugin.yml"
+  wait_for 60 "the device plugin to appear" \
+    kubectl -n kube-system get ds nvidia-device-plugin-daemonset
   ok "applied"
 fi
 if [ -n "$RUNTIME" ]; then
@@ -223,9 +249,16 @@ kubectl -n kube-system rollout status ds/nvidia-device-plugin-daemonset --timeou
 ok "rolled out"
 
 say "GPUs the scheduler can see"
+# The plugin rolling out is not the same as the node having advertised: capacity
+# appears a few seconds later, so poll rather than read it once and give up.
+gpu_total() { kubectl get nodes -o jsonpath='{range .items[*]}{.status.capacity.nvidia\.com/gpu}{"\n"}{end}' \
+              2>/dev/null | awk '{s+=$1} END {print s+0}'; }
+some_gpus() { [ "$(gpu_total)" -gt 0 ]; }
+wait_for 120 "a node to advertise a GPU" some_gpus || true
 kubectl get nodes -o=custom-columns='NODE:.metadata.name,GPUS:.status.capacity.nvidia\.com/gpu' | sed 's/^/    /'
-TOTAL=$(kubectl get nodes -o jsonpath='{range .items[*]}{.status.capacity.nvidia\.com/gpu}{"\n"}{end}' | awk '{s+=$1} END {print s+0}')
-[ "$TOTAL" -gt 0 ] || die "no GPUs advertised. Look at:
+TOTAL=$(gpu_total)
+[ "$TOTAL" -gt 0 ] || die "no GPUs advertised after two minutes. Usually the
+      RuntimeClass or the toolkit. Look at:
       kubectl -n kube-system logs ds/nvidia-device-plugin-daemonset"
 ok "$TOTAL schedulable"
 

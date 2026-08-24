@@ -6,6 +6,11 @@
 # 3 cards, three ways: replicas=3 gpu=1 (three independent copies), replicas=1
 # gpu=2 (one bigger model, third card left for infer), replicas=1 gpu=3 (one
 # model across all three, if the head count divides by 3).
+#
+# On a machine with MIXED card models, keep gpu=1 and scale with replicas. One
+# model split across two different architectures is slowed by the weaker card at
+# every collective and can fail outright on a capability mismatch; two
+# independent copies do not care that the cards differ.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
