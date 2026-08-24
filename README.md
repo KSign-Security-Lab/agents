@@ -196,7 +196,7 @@ text. Numbers can be self-consistent and still point at the wrong line.
 | `.env` — two values | `COMPOSE_PROFILES`, `GPU_HOST` |
 | `k8s/vllm.yaml` | `replicas` and `nvidia.com/gpu` — the entire GPU layout |
 | `k8s/config.yaml` | model ids, context length, VRAM share, embed/rerank/ASR models |
-| `compose.*.yml` — `${VAR:-default}` | the dev containers' ports and paths |
+| `compose.*.yaml` — `${VAR:-default}` | the dev containers' ports and paths |
 | `apps/api/app/config.py` — `Settings` | OCR, chunking, retrieval, agent and topic tuning, each beside the measurement that chose it |
 | `package.json` — `scripts` | every command; `pnpm run` prints it |
 
