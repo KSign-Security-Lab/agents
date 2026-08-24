@@ -1,0 +1,101 @@
+# vllm — the model server. Replicas are the unit of scale, so an odd card count
+# needs no second definition: 3 cards is either replicas=3 with 1 GPU each, or
+# replicas=1 with nvidia.com/gpu: 2 and TENSOR_PARALLEL=2 leaving one for infer.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: agents
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: vllm }
+  strategy:
+    # Never take the only replica down before its replacement serves: a rolling
+    # update means minutes of weight loading, not seconds.
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      labels: { app: vllm }
+    spec:
+      # Spread replicas over nodes rather than stacking them on one box.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: vllm }
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              exec vllm serve "$MODEL_ID" \
+                --served-model-name "$SERVED_MODEL_NAME" \
+                --max-model-len "$MAX_MODEL_LEN" \
+                --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
+                --tensor-parallel-size "$TENSOR_PARALLEL" \
+                --host 0.0.0.0 --port 8000 \
+                --structured-outputs-config '{"disable_any_whitespace":true,"backend":"xgrammar"}' \
+                ${TOOL_CALL_PARSER:+--tool-call-parser "$TOOL_CALL_PARSER" --enable-auto-tool-choice}
+          envFrom:
+            - configMapRef: { name: models }
+          env:
+            - name: HF_HOME
+              value: /root/.cache/huggingface
+            - name: HF_HUB_ENABLE_HF_TRANSFER
+              value: "1"
+          ports:
+            - { name: http, containerPort: 8000 }
+          resources:
+            limits:
+              # The scheduler places the pod on a node with this many free cards
+              # and sets CUDA_VISIBLE_DEVICES itself — no VLLM_GPUS bookkeeping.
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - { name: hf-cache, mountPath: /root/.cache/huggingface }
+            # vLLM needs a large /dev/shm; the default 64Mi will not do. This is
+            # what compose's `ipc: host` + `shm_size: 8gb` becomes, without
+            # sharing the host's IPC namespace.
+            - { name: dshm, mountPath: /dev/shm }
+          # A 30GB first pull takes minutes, so slow starts are a startupProbe
+          # rather than a long readiness delay: up to 20 minutes to come up, then
+          # a tight 10s readiness check for the rest of the pod's life.
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 20
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        # Weights are a cache, so per-node is fine and avoids needing shared
+        # storage. Swap for a ReadWriteMany PVC if you have one — then a new node
+        # does not re-download.
+        - name: hf-cache
+          hostPath: { path: /var/lib/agents/hf, type: DirectoryOrCreate }
+        - name: dshm
+          emptyDir: { medium: Memory, sizeLimit: 8Gi }
+---
+# This Service is what replaces the nginx gateway. kube-proxy load balances over
+# every ready pod, and an unready one is removed from rotation automatically —
+# which is what max_fails/fail_timeout was approximating.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+  namespace: agents
+spec:
+  type: NodePort
+  selector: { app: vllm }
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      # Fixed so a developer's .env can name it: LLM_GATEWAY_PORT=30862.
+      nodePort: 30862

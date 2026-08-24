@@ -1,0 +1,60 @@
+# infer — embeddings, reranking, ASR. One replica is usually enough: embedding a
+# query is milliseconds next to generation, so this is not the bottleneck.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infer
+  namespace: agents
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: infer }
+  template:
+    metadata:
+      labels: { app: infer }
+    spec:
+      containers:
+        - name: infer
+          image: agents/infer:dev
+          envFrom:
+            - configMapRef: { name: models }
+          env:
+            - name: HF_HOME
+              value: /models
+          ports:
+            - { name: http, containerPort: 8000 }
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - { name: models, mountPath: /models }
+            # See k8s/README.md: /transcribe reads media off this path, so on a
+            # multi-node cluster it has to be an RWX volume or the endpoint needs
+            # an upload path. hostPath here works only if worker runs beside it.
+            - { name: storage, mountPath: /storage }
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 15
+            failureThreshold: 40
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+      volumes:
+        - name: models
+          hostPath: { path: /var/lib/agents/infer-models, type: DirectoryOrCreate }
+        - name: storage
+          hostPath: { path: /var/lib/agents/storage, type: DirectoryOrCreate }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: infer
+  namespace: agents
+spec:
+  type: NodePort
+  selector: { app: infer }
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      nodePort: 30863

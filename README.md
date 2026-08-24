@@ -280,6 +280,23 @@ pnpm bboxes <document-id>
 onto the rendered page so you can *see* whether highlights land on the right
 text. Numbers can be self-consistent and still point at the wrong line.
 
+### Kubernetes, if the GPU side outgrows this
+
+[`k8s/`](k8s/) has manifests that replace **the GPU side only** — a `Service` in
+front of N `vllm` pods does what `llm-gateway` does, so adopting it deletes the
+gateway, its nginx template and entrypoint, `GPU_PEERS`, and the `vllm2` profile.
+Roughly 150 lines of compose, config and shell for ~15 lines of Service, and the
+scheduler assigns cards instead of you.
+
+The dev side stays `docker compose` — a laptop is not a cluster. Developers point
+`GPU_HOST` at any node and change nothing else.
+
+It's worth it when hand-assigning GPUs becomes the bottleneck: about five or more
+GPU nodes, nodes that come and go, or a second team wanting a share with quotas.
+For three static boxes, the compose path is less machinery for the same result.
+Untested against real GPUs — see the caveats in `k8s/README.md`, including the
+`/transcribe` shared-mount problem that has to be fixed first.
+
 ### Configuration is only what you decide
 
 `.env` holds `COMPOSE_PROFILES` plus a handful of values. Anything absent falls

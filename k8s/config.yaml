@@ -1,0 +1,22 @@
+# The same values as .env's vllm and infer sections, in the one place a cluster
+# reads them. Changing this and rolling out is the equivalent of editing .env and
+# running `docker compose up -d`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: models
+  namespace: agents
+data:
+  MODEL_ID: LGAI-EXAONE/EXAONE-4.0-32B-AWQ
+  SERVED_MODEL_NAME: main
+  MAX_MODEL_LEN: "32768"
+  GPU_MEMORY_UTILIZATION: "0.62"
+  TOOL_CALL_PARSER: hermes
+  # Per pod, not per node. Two cards in one pod is tensor parallel; more pods is
+  # data parallel, and the Service balances between them.
+  TENSOR_PARALLEL: "1"
+  EMBED_MODEL: BAAI/bge-m3
+  RERANK_MODEL: BAAI/bge-reranker-v2-m3
+  ASR_MODEL: large-v3
+  ASR_COMPUTE_TYPE: int8_float16
+  ASR_LANGUAGE: ko
