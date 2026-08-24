@@ -17,11 +17,10 @@ from api.app.db.models import Document, DocStatus
 from api.app.db.session import SessionLocal
 from api.app.ingest import convert
 from api.app.ingest.pipeline import ingest_document
-from api.app.services.storage import LocalStorage, shard_key
+from api.app.services.storage import shard_key, storage
 
 
 async def ingest_path(path: Path, *, force: bool = False) -> None:
-    storage = LocalStorage()
     data = path.read_bytes()
     sha = hashlib.sha256(data).hexdigest()
     kind = convert.classify(path.name)

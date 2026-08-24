@@ -11,23 +11,16 @@ import hashlib
 import shutil
 from collections.abc import AsyncIterator, Iterable
 from pathlib import Path
-from typing import BinaryIO, Protocol
+from typing import BinaryIO
 
 from api.app.config import settings
 
 CHUNK = 1024 * 1024
 
 
-class Storage(Protocol):
-    def path(self, key: str) -> Path: ...
-    def write(self, key: str, src: BinaryIO) -> int: ...
-    def write_bytes(self, key: str, data: bytes) -> int: ...
-    def read_bytes(self, key: str) -> bytes: ...
-    def exists(self, key: str) -> bool: ...
-    def delete(self, key: str) -> None: ...
-    def stream(self, key: str, chunk: int = CHUNK) -> Iterable[bytes]: ...
-
-
+# One implementation, and nothing annotates against an interface, so there is no
+# Storage Protocol here. If a second backend ever arrives — S3, say — extract one
+# then, from two real shapes rather than a guess at what they will share.
 class LocalStorage:
     """Keys are relative POSIX paths under ``root``, e.g.
     ``originals/ab/cd/<sha>.pdf``."""

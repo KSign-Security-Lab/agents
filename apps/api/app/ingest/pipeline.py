@@ -36,7 +36,7 @@ from api.app.ingest import extract as extractor
 from api.app.services.infer_client import infer_client
 from api.app.services.realtime import realtime
 from api.app.services.retrieval import to_sparse_vector
-from api.app.services.storage import LocalStorage, shard_key, storage
+from api.app.services.storage import shard_key, storage
 
 log = logging.getLogger("ingest.pipeline")
 
@@ -150,7 +150,7 @@ async def _stage_convert(db: AsyncSession, doc: Document, work: Path) -> None:
         doc.key_pdf = doc.key_original
     else:
         key = shard_key("pdf", doc.sha256, ".pdf")
-        LocalStorage().copy_in(key, pdf)
+        storage.copy_in(key, pdf)
         doc.key_pdf = key
     await db.flush()
 
@@ -167,7 +167,7 @@ async def _stage_media(db: AsyncSession, doc: Document, work: Path) -> None:
     src = _materialize(doc.key_original, work)
     playable = convert.normalize_media_for_playback(src, work / "media", doc.source_kind)
     key = shard_key("media", doc.sha256, playable.suffix)
-    LocalStorage().copy_in(key, playable)
+    storage.copy_in(key, playable)
     doc.key_media = key
     doc.duration_ms = convert.probe_duration_ms(src) or None
     await db.flush()
@@ -210,7 +210,7 @@ async def _stage_transcribe(db: AsyncSession, doc: Document, work: Path) -> None
 
     # The path is resolved here, on the machine that holds the file, and the bytes
     # are uploaded — infer may not be on this host.
-    media = LocalStorage().path(doc.key_media or doc.key_original)
+    media = storage.path(doc.key_media or doc.key_original)
     result = await infer_client.transcribe(media)
     segments = result.get("segments", [])
     if not segments:
