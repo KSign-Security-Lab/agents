@@ -55,6 +55,20 @@ Korean-first throughout: prompts, UI, sentence segmentation, OCR, and models.
 
 ## Running it
 
+```bash
+./setup
+```
+
+It asks what the machine is and does the rest. Nothing to memorise, and the
+answers are positional if you'd rather script it:
+
+```bash
+./setup dev [gpu-host]              # a developer's machine
+./setup server                      # the first GPU machine
+./setup agent <server-ip> <token>   # another GPU machine
+./setup check                       # inspect, change nothing
+```
+
 Two kinds of machine, sharing nothing but a network.
 
 ### GPU machines — a k3s cluster
@@ -65,7 +79,7 @@ They hold no configuration of their own. Join the cluster and they're done.
 nvidia-smi                     # 1. the driver already lists your cards
 nvidia-ctk --version           # 2. and the Container Toolkit is there
 
-sudo k8s/setup.sh server       # 3. k3s + device plugin + a real GPU pod as proof
+sudo ./setup server       # 3. k3s + device plugin + a real GPU pod as proof
 
 pnpm image:infer                                  # 4. build the one image we own
 docker save agents/infer:dev | sudo k3s ctr images import -
@@ -77,10 +91,10 @@ curl -s localhost:30862/v1/models                 # 7. 200 naming "main"
 
 Steps 1–2 are already true if vLLM has ever run under Docker on that machine.
 Step 4 exists because Kubernetes pulls images and cannot read Docker's local
-cache. A second machine later is `sudo k8s/setup.sh agent <server-ip> <token>`
+cache. A second machine later is `sudo ./setup agent <server-ip> <token>`
 plus a `kubectl scale` — nothing else.
 
-`k8s/setup.sh` checks the driver and toolkit, installs k3s and the NVIDIA device
+`./setup` checks the driver and toolkit, installs k3s and the NVIDIA device
 plugin, and finishes by running a real GPU pod — if that passes, the cluster can
 serve models. See [`k8s/README.md`](k8s/README.md) for the detail, including the
 RuntimeClass trap and how to get `agents/infer:dev` onto the nodes.
@@ -129,7 +143,7 @@ processes. Ctrl-C stops them and leaves the containers up.
 | You want | Do this |
 |---|---|
 | more copies on machines you have | `kubectl -n agents scale deploy/vllm --replicas=3` |
-| a whole new machine | `sudo k8s/setup.sh agent <ip> <token>`, then scale |
+| a whole new machine | `sudo ./setup agent <ip> <token>`, then scale |
 | a model too big for one card | raise `nvidia.com/gpu` |
 
 Adding a machine changes no configuration anywhere: it registers itself, the

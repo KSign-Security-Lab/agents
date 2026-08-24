@@ -331,8 +331,9 @@
 
   <section>
     <h2 class="section">Setting up the GPU server</h2>
-    <p class="lede" style="font-size:16px">In order, once. Steps 1–2 are already true if vLLM has
-    ever run under Docker on this machine.</p>
+    <p class="lede" style="font-size:16px">Or just run <code>./setup</code> from the repo root — it
+    asks what the machine is and does all of this. The steps are here so you know what it did, and
+    because 1–2 are already true if vLLM has ever run under Docker on this machine.</p>
 
     <div class="tbl" style="margin-top:22px">
       <table>
@@ -345,7 +346,7 @@
             <td><pre style="font-size:12.5px">nvidia-ctk --version</pre></td>
             <td>The Container Toolkit. Present already if Docker has ever run a GPU container here.</td></tr>
           <tr><td class="num">3</td>
-            <td><pre style="font-size:12.5px">sudo k8s/setup.sh server</pre></td>
+            <td><pre style="font-size:12.5px">sudo ./setup server</pre></td>
             <td>Installs k3s and the NVIDIA device plugin, then runs a real GPU pod. If that last
             step passes, the cluster can serve models. It refuses early with the fix in the message
             if 1 or 2 are missing.</td></tr>
@@ -380,7 +381,7 @@ docker compose up -d      <span class="c"># postgres + redis</span>
 pnpm install &amp;&amp; pnpm venv
 pnpm dev</pre>
       <p>No further coordination. Adding a second GPU machine later is
-      <code>sudo k8s/setup.sh agent &lt;server-ip&gt; &lt;token&gt;</code> plus a
+      <code>sudo ./setup agent &lt;server-ip&gt; &lt;token&gt;</code> plus a
       <code>kubectl scale</code>, and no laptop's <code>.env</code> changes.</p>
     </div>
   </section>
@@ -398,10 +399,10 @@ pnpm dev</pre>
           <tr>
             <td><span class="svc svc-gpu">a GPU machine</span><br><span class="where">one, or several</span></td>
             <td><pre style="font-size:12.5px"><span class="c"># the first one</span>
-sudo k8s/setup.sh server
+sudo ./setup server
 
 <span class="c"># each one after it</span>
-sudo k8s/setup.sh agent \
+sudo ./setup agent \
      &lt;server-ip&gt; &lt;token&gt;</pre></td>
             <td><code>vllm</code> pods — one per GPU<br><code>infer</code> pod<br><span class="where">and the control plane, on the first</span></td>
           </tr>
@@ -447,7 +448,7 @@ pnpm dev</pre></td>
           </tr>
           <tr>
             <td>a whole new machine</td>
-            <td><code>sudo k8s/setup.sh agent &lt;ip&gt; &lt;token&gt;</code>, then scale</td>
+            <td><code>sudo ./setup agent &lt;ip&gt; &lt;token&gt;</code>, then scale</td>
             <td>It registers itself, the device plugin lands on it automatically and advertises its
             cards, and the Service adds the new pod once it passes readiness. <strong>No config
             changes anywhere</strong> — no <code>.env</code> edit on any laptop, nothing restarted.</td>

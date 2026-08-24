@@ -1,0 +1,295 @@
+#!/usr/bin/env sh
+# ---------------------------------------------------------------------------
+#  ./setup — the one thing to run on a new machine.
+#
+#  Run it with no arguments and it asks what this machine is, then does it. The
+#  answers are also positional, for scripting:
+#
+#    ./setup dev [gpu-host]              a developer's machine
+#    ./setup server                      the first GPU machine
+#    ./setup agent <server-ip> <token>   another GPU machine
+#    ./setup check                       inspect, change nothing
+#
+#  Plain sh, because a GPU server has no reason to have Node installed. Every
+#  step checks before it acts, so re-running is safe and is how you diagnose.
+# ---------------------------------------------------------------------------
+set -eu
+
+ROOT=$(cd "$(dirname "$0")" && pwd)
+PLUGIN_VERSION="${PLUGIN_VERSION:-v0.20.0}"
+
+b()    { printf '\033[1m%s\033[0m\n' "$*"; }
+say()  { printf '\n\033[36m==> %s\033[0m\n' "$*"; }
+ok()   { printf '    \033[32mok\033[0m   %s\n' "$*"; }
+warn() { printf '    \033[33mwarn\033[0m %s\n' "$*"; }
+die()  { printf '\n\033[31merror\033[0m %s\n' "$*" >&2; exit 1; }
+ask()  { # ask <prompt> <default>; echoes the answer
+  if [ -n "${2:-}" ]; then printf '  %s [%s]: ' "$1" "$2" >&2
+  else printf '  %s: ' "$1" >&2; fi
+  read -r _a || _a=""
+  [ -n "$_a" ] || _a="${2:-}"
+  printf '%s' "$_a"
+}
+
+# ------------------------------------------------------------------- the menu
+MODE="${1:-}"
+if [ -z "$MODE" ]; then
+  [ -t 0 ] || die "no arguments and no terminal to ask on. Use: ./setup dev|server|agent|check"
+  echo
+  b "  What is this machine?"
+  echo
+  echo "    1) a developer's machine    postgres + redis in Docker, api + web on the host"
+  echo "    2) the first GPU machine    k3s control plane, and it serves models too"
+  echo "    3) another GPU machine      joins an existing cluster"
+  echo "    4) just check this one      inspects, changes nothing"
+  echo
+  case "$(ask 'choose 1-4' '1')" in
+    1) MODE=dev ;;
+    2) MODE=server ;;
+    3) MODE=agent ;;
+    4) MODE=check ;;
+    *) die "pick 1, 2, 3 or 4" ;;
+  esac
+fi
+
+case "$MODE" in
+  dev|server|agent|check) ;;
+  *) die "usage: ./setup dev [gpu-host] | server | agent <server-ip> <token> | check" ;;
+esac
+
+# =========================================================== a dev machine
+if [ "$MODE" = dev ]; then
+  say "a developer's machine"
+  command -v docker >/dev/null || die "docker not found — install Docker Desktop or Engine first"
+  docker info >/dev/null 2>&1 || die "docker is installed but not running"
+  ok "docker"
+
+  GPU_HOST="${2:-}"
+  if [ -z "$GPU_HOST" ]; then
+    current=$(sed -n 's/^GPU_HOST=//p' "$ROOT/.env" 2>/dev/null | head -1)
+    [ -t 0 ] || die "no gpu-host given and no terminal to ask on: ./setup dev <gpu-host>"
+    echo
+    echo "  Which machine serves the models? Any node of the k3s cluster — its IP."
+    echo "  Leave it as localhost only if the cluster is on this machine."
+    GPU_HOST=$(ask "GPU_HOST" "${current:-localhost}")
+  fi
+
+  if [ -f "$ROOT/.env" ]; then
+    ok ".env exists, leaving it alone except GPU_HOST"
+    if grep -q '^GPU_HOST=' "$ROOT/.env"; then
+      sed -i.bak "s|^GPU_HOST=.*|GPU_HOST=$GPU_HOST|" "$ROOT/.env" && rm -f "$ROOT/.env.bak"
+    else
+      printf '\nGPU_HOST=%s\n' "$GPU_HOST" >> "$ROOT/.env"
+    fi
+  else
+    cp "$ROOT/.env.example" "$ROOT/.env"
+    sed -i.bak "s|^GPU_HOST=.*|GPU_HOST=$GPU_HOST|" "$ROOT/.env" && rm -f "$ROOT/.env.bak"
+    ok "wrote .env"
+  fi
+  ok "GPU_HOST=$GPU_HOST"
+
+  say "containers"
+  (cd "$ROOT" && docker compose up -d --wait)
+
+  say "dependencies"
+  command -v pnpm >/dev/null || die "pnpm not found — install it: npm i -g pnpm@9"
+  command -v uv  >/dev/null || die "uv not found — install it: curl -LsSf https://astral.sh/uv/install.sh | sh"
+  (cd "$ROOT" && pnpm install --silent && pnpm venv >/dev/null)
+  ok "node_modules and .venv"
+
+  say "database"
+  (cd "$ROOT" && pnpm migrate >/dev/null 2>&1 && pnpm seed)
+
+  cat <<EOF
+
+$(printf '\033[32mReady.\033[0m')  Start it with:
+
+    pnpm dev          api + web, reloading, on :8000 and :3000
+
+  Models are reached at http://$GPU_HOST:30862 (vllm) and :30863 (infer).
+  If those do not answer, that machine has not finished ./setup server.
+EOF
+  exit 0
+fi
+
+# ===================================================== the GPU machine paths
+say "host"
+[ "$(uname -s)" = Linux ] || die "a GPU machine has to be Linux; this is $(uname -s).
+      Did you mean a developer's machine?  ./setup dev"
+[ "$MODE" = check ] || [ "$(id -u)" -eq 0 ] || die "installing k3s needs root — re-run with sudo"
+for c in curl awk sed; do command -v "$c" >/dev/null || die "$c not found, and this needs it"; done
+ok "$(uname -sr)"
+
+say "NVIDIA driver"
+command -v nvidia-smi >/dev/null || die "nvidia-smi not found. Install the driver, then re-run."
+nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader | sed 's/^/    GPU /'
+ok "driver $(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)"
+
+say "NVIDIA Container Toolkit"
+if command -v nvidia-ctk >/dev/null 2>&1; then ok "nvidia-ctk present"
+elif [ -e /usr/bin/nvidia-container-runtime ]; then ok "nvidia-container-runtime present"
+else die "Container Toolkit not found. If vLLM has ever run under Docker here you
+      have it already; otherwise install it and re-run:
+      https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+fi
+
+say "ports k3s needs between nodes"
+echo "    6443/tcp api · 8472/udp flannel · 10250/tcp kubelet"
+if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+  warn "firewalld is active — open those or joins will hang"
+elif command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+  warn "ufw is active — open those or joins will hang"
+else ok "no active host firewall detected"; fi
+
+IS_SERVER=false
+[ -d /var/lib/rancher/k3s/server ] && IS_SERVER=true
+if [ "$MODE" = agent ] && [ "$IS_SERVER" = true ]; then
+  die "this machine is already the cluster's server, and a k3s server runs
+      workloads itself — there is no agent to add. Run this on the other
+      machine, or './setup check' here."
+fi
+
+# --------------------------------------------------------------------- install
+if [ "$MODE" = check ]; then
+  command -v k3s >/dev/null || die "k3s is not installed here. './setup server' or './setup agent ...'"
+  ok "k3s $(k3s --version | head -1 | awk '{print $3}')"
+elif command -v k3s >/dev/null 2>&1; then
+  say "k3s"; ok "already installed: $(k3s --version | head -1 | awk '{print $3}')"
+else
+  if [ "$MODE" = agent ]; then
+    SRV="${2:-}"; TOK="${3:-}"
+    if [ -z "$SRV" ] || [ -z "$TOK" ]; then
+      [ -t 0 ] || die "usage: ./setup agent <server-ip> <node-token>"
+      echo
+      echo "  On the FIRST GPU machine, run:  sudo cat /var/lib/rancher/k3s/server/node-token"
+      [ -n "$SRV" ] || SRV=$(ask "the first machine's IP" "")
+      [ -n "$TOK" ] || TOK=$(ask "its node token" "")
+      [ -n "$SRV" ] && [ -n "$TOK" ] || die "both are required"
+    fi
+    say "joining $SRV"
+    curl -sfL https://get.k3s.io | K3S_URL="https://$SRV:6443" K3S_TOKEN="$TOK" sh -
+  else
+    say "installing k3s (server)"
+    curl -sfL https://get.k3s.io | sh -s - server --write-kubeconfig-mode 644
+  fi
+  ok "installed"
+fi
+
+if [ "$MODE" = agent ]; then
+  cat <<EOF
+
+$(printf '\033[32mJoined.\033[0m')  On the server, confirm and use it:
+
+    kubectl get nodes
+    kubectl -n agents scale deploy/vllm --replicas=<total GPUs across the cluster>
+EOF
+  exit 0
+fi
+
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+[ -r "$KUBECONFIG" ] || die "cannot read $KUBECONFIG — run as root on the server machine"
+
+say "node readiness"
+kubectl wait --for=condition=Ready node --all --timeout=180s >/dev/null
+kubectl get nodes -o=custom-columns='NAME:.metadata.name,VERSION:.status.nodeInfo.kubeletVersion' | sed 's/^/    /'
+
+say "nvidia RuntimeClass"
+if kubectl get runtimeclass nvidia >/dev/null 2>&1; then
+  ok "present"; RUNTIME=nvidia
+else
+  warn "absent. k3s creates it when it finds the toolkit at install time. If the
+         toolkit was installed afterwards:  systemctl restart k3s  then re-run."
+  RUNTIME=""
+fi
+
+say "NVIDIA device plugin $PLUGIN_VERSION"
+if kubectl -n kube-system get ds nvidia-device-plugin-daemonset >/dev/null 2>&1; then
+  ok "already installed"
+else
+  [ "$MODE" = check ] && die "device plugin not installed. Run: sudo ./setup server"
+  kubectl apply -f "https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/$PLUGIN_VERSION/deployments/static/nvidia-device-plugin.yml"
+  ok "applied"
+fi
+if [ -n "$RUNTIME" ]; then
+  cur=$(kubectl -n kube-system get ds nvidia-device-plugin-daemonset \
+        -o jsonpath='{.spec.template.spec.runtimeClassName}' 2>/dev/null || true)
+  if [ "$cur" != "$RUNTIME" ]; then
+    kubectl -n kube-system patch ds nvidia-device-plugin-daemonset --type merge \
+      -p "{\"spec\":{\"template\":{\"spec\":{\"runtimeClassName\":\"$RUNTIME\"}}}}" >/dev/null
+    ok "patched onto runtimeClassName=$RUNTIME"
+  else ok "runtimeClassName=$RUNTIME already set"; fi
+fi
+kubectl -n kube-system rollout status ds/nvidia-device-plugin-daemonset --timeout=180s >/dev/null
+ok "rolled out"
+
+say "GPUs the scheduler can see"
+kubectl get nodes -o=custom-columns='NODE:.metadata.name,GPUS:.status.capacity.nvidia\.com/gpu' | sed 's/^/    /'
+TOTAL=$(kubectl get nodes -o jsonpath='{range .items[*]}{.status.capacity.nvidia\.com/gpu}{"\n"}{end}' | awk '{s+=$1} END {print s+0}')
+[ "$TOTAL" -gt 0 ] || die "no GPUs advertised. Look at:
+      kubectl -n kube-system logs ds/nvidia-device-plugin-daemonset"
+ok "$TOTAL schedulable"
+
+say "smoke test — a pod that asks for a GPU"
+kubectl delete job gpu-smoke --ignore-not-found >/dev/null 2>&1 || true
+cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: batch/v1
+kind: Job
+metadata: { name: gpu-smoke }
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      ${RUNTIME:+runtimeClassName: $RUNTIME}
+      containers:
+        - name: smi
+          image: nvidia/cuda:12.4.1-base-ubuntu22.04
+          command: ["nvidia-smi", "-L"]
+          resources: { limits: { nvidia.com/gpu: 1 } }
+EOF
+if kubectl wait --for=condition=complete job/gpu-smoke --timeout=300s >/dev/null 2>&1; then
+  kubectl logs job/gpu-smoke | sed 's/^/    /'
+  ok "a pod got a GPU"
+  kubectl delete job gpu-smoke >/dev/null 2>&1 || true
+else
+  kubectl describe job gpu-smoke | tail -12 | sed 's/^/    /'
+  die "the smoke test did not complete — usually the RuntimeClass or the plugin.
+      Left in place to inspect:  kubectl describe job gpu-smoke"
+fi
+
+[ "$MODE" = check ] && { say "check complete"; exit 0; }
+
+say "deploying the models"
+if [ -n "$(kubectl -n agents get deploy vllm --ignore-not-found -o name 2>/dev/null)" ]; then
+  ok "already deployed — 'kubectl apply -k k8s/' to update"
+else
+  if docker image inspect agents/infer:dev >/dev/null 2>&1; then
+    ok "agents/infer:dev built"
+  else
+    warn "agents/infer:dev is not built. Kubernetes cannot read Docker's cache, so:
+           pnpm image:infer
+           docker save agents/infer:dev | sudo k3s ctr images import -
+         Then re-run this, or 'kubectl apply -k k8s/' yourself."
+  fi
+  kubectl apply -k "$ROOT/k8s/" >/dev/null
+  ok "applied k8s/"
+fi
+
+cat <<EOF
+
+$(printf '\033[32mCluster is ready.\033[0m')  This machine is both control plane and worker —
+k3s does not taint the server, so its GPUs are in the pool.
+
+  Watch the model come up (the first run downloads ~30GB):
+    kubectl -n agents rollout status deploy/vllm
+    kubectl -n agents logs -f deploy/vllm
+
+  Then prove it serves:
+    curl -s localhost:30862/v1/models
+
+  Developers point at this machine:
+    ./setup dev $(hostname -I 2>/dev/null | awk '{print $1}')
+
+  To add another GPU machine, print the token here:
+    sudo cat /var/lib/rancher/k3s/server/node-token
+EOF

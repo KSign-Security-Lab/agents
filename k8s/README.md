@@ -63,25 +63,25 @@ be spending a GPU box on redundancy. A single server plus a backup of
 
 ## Setup
 
-`k8s/setup.sh` does the one-off bootstrap. Run it on the GPU machines, never on a
+`./setup` does the one-off bootstrap. Run it on the GPU machines, never on a
 laptop. It is idempotent, so re-running is also how you check a node.
 
 ```bash
 # the first machine
-sudo k8s/setup.sh server
+sudo ./setup server
 
 # its join token, printed for the next machine
 sudo cat /var/lib/rancher/k3s/server/node-token
 
 # every machine after it
-sudo k8s/setup.sh agent <first-machine-ip> <that-token>
+sudo ./setup agent <first-machine-ip> <that-token>
 ```
 
 **The server is also a worker.** k3s does not taint the control-plane node, so it
 runs the kubelet, schedules pods, and its GPUs are advertised by the same device
 plugin as everyone else's. Consequences:
 
-- **One machine is a complete cluster.** `sudo k8s/setup.sh server` and you are
+- **One machine is a complete cluster.** `sudo ./setup server` and you are
   done — nothing else to install, and that box serves models.
 - **Never run `agent` on the server.** There is no agent to add. The script
   refuses if you try, rather than half-joining a node to itself.
@@ -99,7 +99,7 @@ curl -sfL https://get.k3s.io | sh -s - server \
 That is not the default here because on a three-GPU-machine setup you want all
 three serving.
 
-`sudo k8s/setup.sh verify` checks a node and changes nothing, which is the same
+`sudo ./setup check` checks a node and changes nothing, which is the same
 code path — so a healthy node and a freshly built one are verified identically.
 
 What it checks, in order, refusing early with a message that says what to do:
@@ -207,7 +207,7 @@ one frees up, which is the honest failure mode.
 **A new machine** — bootstrap it as an agent, and that's all:
 
 ```bash
-k8s/setup.sh agent <server-ip> <token>      # on the new box
+./setup agent <server-ip> <token>      # on the new box
 kubectl -n agents scale deploy/vllm --replicas=4
 ```
 
@@ -245,7 +245,7 @@ nvidia-smi                     # the driver lists your cards
 nvidia-ctk --version           # the Container Toolkit
 
 # 3. the cluster, the device plugin, and a real GPU pod as proof
-sudo k8s/setup.sh server
+sudo ./setup server
 
 # 4. the one image we build, handed to containerd
 pnpm image:infer
