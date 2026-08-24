@@ -75,7 +75,7 @@ docker compose config --services     # what your .env starts right now
 | `dev` | postgres, redis | you're developing — this is the default in `.env.example` |
 | `gpu` | llm-gateway, vllm-a, infer | the machine has CUDA and serves the models |
 | `ingest` | worker | you're debugging ingest (big image: LibreOffice, OCR, ffmpeg) |
-| `replica2` | a second vllm | you have a spare GPU and want the load split |
+| `replica2` | a second vllm | you have a spare GPU and want the load split — check `VLLM_B_GPUS` against `INFER_GPUS`, which default to the same card |
 
 Combine with commas — `dev,ingest`, or `gpu,dev` for both roles on one box. You
 can also skip `.env` entirely and name services, which activates their profile on
