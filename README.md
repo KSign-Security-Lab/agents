@@ -89,15 +89,21 @@ axes handle that, and neither adds a service:
 # more cards on THIS machine — vLLM does it inside the one server
 VLLM_GPUS=0,1,2,3   TENSOR_PARALLEL=2   DATA_PARALLEL=2
 
-# more machines — name the others; this machine's own vllm is always included
-GPU_PEERS=gpu-b,gpu-c
+# more machines — the others' IPs; this machine's own vllm is always included
+GPU_PEERS=10.0.0.12,10.0.0.13
 ```
 
 `TENSOR_PARALLEL` splits one model across N cards; `DATA_PARALLEL` runs N copies
 and load-balances between them. They multiply, and the product should equal the
-number of cards you listed. `GPU_PEERS` takes hostnames or IPs — each gets
-`VLLM_PORT` (8601) unless you write `gpu-b:9000` — so adding a machine is one
-more name.
+number of cards you listed. `GPU_PEERS` names the other boxes — each gets
+`VLLM_PORT` (8601) unless you write `10.0.0.12:9000` — so adding a machine is one
+more entry.
+
+**Use IPs there.** The gateway hands those entries to nginx unchanged, and nginx
+resolves them through the *container's* DNS: Docker's resolver, which forwards to
+the host's nameservers but does **not** read the host's `/etc/hosts`. So a
+hostname works only with real DNS; putting `gpu-b` in `/etc/hosts` on the gateway
+machine fails with `host not found in upstream` and nginx won't start.
 
 Everything else is normal compose — `docker compose down`, `ps`,
 `logs -f vllm`, `exec postgres psql -U agents`, `restart infer`.
@@ -156,7 +162,7 @@ bare `docker compose up -d`:
 # machine A — the one developers point at
 COMPOSE_PROFILES=gpu
 BIND_ADDR=0.0.0.0
-GPU_PEERS=gpu-b,gpu-c
+GPU_PEERS=10.0.0.12,10.0.0.13
 
 # machines B and C — model servers, nothing else
 COMPOSE_PROFILES=model

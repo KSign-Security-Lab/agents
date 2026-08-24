@@ -388,7 +388,7 @@
     <figure>
       <div class="scroller" tabindex="0">
         <svg viewBox="0 0 1000 470" role="img"
-             aria-label="compose.yaml contains six services across four profiles. The dev profile holds postgres and redis. The ingest profile holds the worker, which depends on postgres and redis, so ingest cannot be used without dev. The gpu profile holds llm-gateway, vllm and infer. vllm is also in a model profile, for an extra GPU box that serves the model alone and is pooled by another machine's gateway. Scaling is not a profile: TENSOR_PARALLEL and DATA_PARALLEL scale the single vllm service across local GPUs, and GPU_PEERS names other GPU machines for the gateway to pool.">
+             aria-label="compose.yaml contains six services across four profiles. The dev profile holds postgres and redis. The ingest profile holds the worker, which depends on postgres and redis, so ingest cannot be used without dev. The gpu profile holds llm-gateway, vllm and infer. vllm is also in a model profile, for an extra GPU box that serves the model alone and is pooled by another machine's gateway. Scaling is not a profile: TENSOR_PARALLEL and DATA_PARALLEL scale the single vllm service across local GPUs, and GPU_PEERS gives the IPs of other GPU machines for the gateway to pool.">
           <defs>
             <marker id="pa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <polygon class="head" points="0,1 10,5 0,9"></polygon>
@@ -512,9 +512,11 @@
                 <td><span class="svc svc-gpu">llm-gateway</span></td>
                 <td class="where">nginx · :8602</td>
                 <td>The one URL the application knows. Whether there's one replica behind it or
-                three is <code>GPU_PEERS</code> in <code>.env</code> — the names of the
+                three is <code>GPU_PEERS</code> in <code>.env</code> — the IPs of the
                 <em>other</em> GPU machines, which it pools with <code>least_conn</code> alongside
-                its own. The application never learns.</td>
+                its own. Use IPs: entries reach nginx unchanged, and a hostname would be resolved by
+                the container's DNS, which never reads the host's <code>/etc/hosts</code>. The
+                application never learns any of it.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-gpu">vllm</span></td>

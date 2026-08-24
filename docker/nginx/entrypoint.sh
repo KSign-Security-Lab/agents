@@ -9,11 +9,13 @@
 # write that themselves meant one line mixing a service name on an internal port
 # with hostnames on a published port, which is a needless thing to have to know.
 #
-#   GPU_PEERS unset          -> just this machine
-#   GPU_PEERS=gpu-b,gpu-c    -> this machine plus two others, on VLLM_PORT
-#   GPU_PEERS=gpu-b:9000     -> ...on a port of its own, if one differs
+#   GPU_PEERS unset               -> just this machine
+#   GPU_PEERS=10.0.0.12,10.0.0.13 -> plus two others, each on VLLM_PORT
+#   GPU_PEERS=10.0.0.12:9000      -> ...on a port of its own, if one differs
 #
-# Entries may be hostnames or IPs. Blank entries and spaces are ignored.
+# Entries are passed to nginx unchanged, so IPs are the safe form: a hostname is
+# resolved by the CONTAINER's DNS, which forwards to the host's nameservers but
+# never reads the host's /etc/hosts. Blank entries and spaces are ignored.
 set -eu
 
 TMP="${TMPDIR:-/tmp}"
