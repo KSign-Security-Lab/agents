@@ -27,3 +27,6 @@ next-env.d.ts
 # Local runtime output
 out/
 logs/
+
+# A machine-specific upstream list, like .env
+docker/nginx/upstreams

@@ -513,7 +513,10 @@
                 <td class="where">nginx · :8602</td>
                 <td>The one URL the application knows. Whether there's one replica behind it or
                 three, here or on other machines, is <code>LLM_UPSTREAMS</code> — a list of
-                addresses it pools with <code>least_conn</code>. The application never learns.</td>
+                addresses it pools with <code>least_conn</code> — either <code>LLM_UPSTREAMS</code>
+                in <code>.env</code>, or <code>docker/nginx/upstreams</code> (one per line, with
+                comments) which applies on a graceful reload with no container recreate. The
+                application never learns.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-gpu">vllm</span></td>

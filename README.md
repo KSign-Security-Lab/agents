@@ -166,13 +166,49 @@ A's gateway becomes a `least_conn` pool over all three, dropping a server after
 3 failures. Nothing else changes: the application still only knows
 `LLM_BASE_URL`, and developers still set one `GPU_HOST`.
 
-Adding machine D is `COMPOSE_PROFILES=model` there, one more entry in A's list,
-and `docker compose up -d llm-gateway` on A — measured at under a second, with no
-model restarted anywhere. What you can't do is have D register *itself*: nginx
-OSS has no dynamic-upstream API, and it refuses runtime DNS resolution together
-with `least_conn` (`resolving names at run time requires upstream … to be in
-shared memory` — that's nginx Plus). HAProxy can do both if you ever get a
-registry worth pointing it at; three static boxes aren't one.
+##### Keeping the list in a file instead
+
+`LLM_UPSTREAMS` is baked into the container at create time, so changing it needs
+`docker compose up -d llm-gateway`. (`docker compose restart` silently keeps the
+old value — it reuses the container, and environment is fixed when a container is
+created, not when it starts.) For more than a machine or two, use the file:
+
+```bash
+cp docker/nginx/upstreams.example docker/nginx/upstreams
+$EDITOR docker/nginx/upstreams
+```
+
+```
+vllm:8000            # this machine's own container
+gpu-b:8601           # second GPU box
+gpu-c:8601           # third
+```
+
+It takes one `host:port` per line, ignores blanks and `#` comments — so you can
+label which machine is which — and it wins over `LLM_UPSTREAMS` when present. It
+is gitignored, like `.env`.
+
+The point of the file is that it needs **no container recreate**:
+
+```bash
+docker compose exec llm-gateway sh -c \
+  '/docker-entrypoint.d/40-render-llm.sh && nginx -s reload'
+```
+
+Verified: same container id afterwards, `RestartCount: 0`, nginx master pid
+unchanged, new workers picking up the new config while the old ones drain. So
+in-flight generations aren't dropped — which matters when a request can run for
+minutes.
+
+##### What you still can't do
+
+Have machine D register *itself*. nginx OSS has no dynamic-upstream API, and it
+refuses runtime DNS resolution together with `least_conn` (`resolving names at
+run time requires upstream … to be in shared memory` — that's nginx Plus). With
+DNS you control, a single `LLM_UPSTREAMS=vllm-pool.internal:8601` re-resolves
+every 10s and is fully automatic, at the cost of round-robin instead of
+`least_conn` and no per-server health tracking. HAProxy does both, if you ever
+have a registry worth pointing it at; a handful of static boxes isn't one.
 
 ### On a developer's machine
 

@@ -23,10 +23,26 @@ TMP="${TMPDIR:-/tmp}"
 CONF_DIR="${CONF_DIR:-/etc/nginx/conf.d}"
 TMPL="${TMPL:-/etc/nginx/templates/llm.conf.tmpl}"
 
-# Tolerate spaces after commas, and ignore empty entries.
-UPSTREAMS=$(printf '%s' "${LLM_UPSTREAMS:-vllm:8000}" | tr -d '[:space:]')
+# Two ways to say where the models are, file first:
+#   docker/nginx/upstreams   one host:port per line, #comments allowed. Mounted
+#                            read-only, so editing it and reloading nginx needs
+#                            no container recreate — see upstreams.example.
+#   LLM_UPSTREAMS            a comma-separated list in .env. Simpler for one
+#                            machine, but baked in at create time, so changing
+#                            it needs `docker compose up -d llm-gateway`.
+LIST_FILE="${LIST_FILE:-/etc/nginx/agents/upstreams}"
+if [ -s "$LIST_FILE" ]; then
+  SOURCE="$LIST_FILE"
+  RAW=$(sed 's/#.*//' "$LIST_FILE" | tr '\n' ',')
+else
+  SOURCE="LLM_UPSTREAMS"
+  RAW="${LLM_UPSTREAMS:-vllm:8000}"
+fi
+
+# Tolerate spaces, blank lines and trailing commas from either source.
+UPSTREAMS=$(printf '%s' "$RAW" | tr -d '[:space:]' | tr ',' '\n' | grep . | paste -sd, -)
 COUNT=$(printf '%s' "$UPSTREAMS" | tr ',' '\n' | grep -c . || true)
-[ "$COUNT" -ge 1 ] || { echo "llm-gateway: LLM_UPSTREAMS is empty" >&2; exit 1; }
+[ "$COUNT" -ge 1 ] || { echo "llm-gateway: no upstreams found in $SOURCE" >&2; exit 1; }
 
 if [ "$COUNT" -eq 1 ]; then
   MODE="1 backend"
@@ -51,4 +67,4 @@ sed -e "/#UPSTREAM_BLOCK#/r $TMP/up.part" -e "/#UPSTREAM_BLOCK#/d" \
     -e "s/#MODE#/$MODE/" "$TMPL" > "$CONF_DIR/default.conf"
 rm -f "$TMP/up.part" "$TMP/pt.part"
 
-echo "llm-gateway: $MODE -> $UPSTREAMS"
+echo "llm-gateway: $MODE from $SOURCE -> $UPSTREAMS"

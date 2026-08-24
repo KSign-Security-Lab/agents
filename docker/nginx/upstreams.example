@@ -1,0 +1,15 @@
+# Copy to docker/nginx/upstreams to use a file instead of LLM_UPSTREAMS.
+#
+# One host:port per line. Blank lines and #comments are ignored, so you can say
+# which machine is which — the whole point of using a file over a comma list.
+#
+# Unlike LLM_UPSTREAMS, changing this needs no container recreate:
+#
+#     docker compose exec llm-gateway sh -c \
+#       '/docker-entrypoint.d/40-render-llm.sh && nginx -s reload'
+#
+# nginx reloads gracefully, so in-flight generations are not dropped.
+
+vllm:8000            # this machine's own container
+# gpu-b:8601         # second GPU box   (COMPOSE_PROFILES=model there)
+# gpu-c:8601         # third

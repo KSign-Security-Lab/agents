@@ -74,6 +74,9 @@ services:
     volumes:
       - ./docker/nginx/llm-gateway.conf.tmpl:/etc/nginx/templates/llm.conf.tmpl:ro
       - ./docker/nginx/entrypoint.sh:/docker-entrypoint.d/40-render-llm.sh:ro
+      # The whole directory, so an optional `upstreams` file can appear without
+      # Docker creating a stray directory where a missing bind-mount target was.
+      - ./docker/nginx:/etc/nginx/agents:ro
     ports:
       # BIND_ADDR=0.0.0.0 publishes the gateway to the network so developers on
       # other machines can point LLM_BASE_URL here. Default stays loopback-only.
