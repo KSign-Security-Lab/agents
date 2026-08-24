@@ -17,10 +17,73 @@ Adopting this **replaces** the `llm-gateway`, and with it:
 So on the GPU side it is a net *deletion*: about 150 lines of compose, nginx
 config and shell, for ~15 lines of Service.
 
+## Setup
+
+`k8s/setup.sh` does the one-off bootstrap. Run it on the GPU machines, never on a
+laptop. It is idempotent, so re-running is also how you check a node.
+
+```bash
+# the first machine
+k8s/setup.sh server
+
+# its join token, printed for the next machine
+sudo cat /var/lib/rancher/k3s/server/node-token
+
+# every machine after it
+k8s/setup.sh agent <first-machine-ip> <that-token>
+```
+
+It refuses early if the NVIDIA driver or Container Toolkit is missing, installs
+k3s, applies the NVIDIA device plugin, and then prints how many GPUs the
+scheduler can actually see. If that last number is zero, nothing else will work
+and the message says where to look.
+
+## Adding a machine, or more pods
+
+Two different things, and only one of them involves a machine.
+
+**More capacity on machines you already have** — just raise the replica count.
+The Service picks the new pods up as they become ready; nothing else changes.
+
+```bash
+kubectl -n agents scale deploy/vllm --replicas=3
+kubectl -n agents get pods -w
+```
+
+One pod per GPU is the default (`nvidia.com/gpu: 1`). The scheduler will not
+place a fourth pod if there are only three free cards — it stays `Pending` until
+one frees up, which is the honest failure mode.
+
+**A new machine** — bootstrap it as an agent, and that's all:
+
+```bash
+k8s/setup.sh agent <server-ip> <token>      # on the new box
+kubectl -n agents scale deploy/vllm --replicas=4
+```
+
+You do not touch `GPU_PEERS`, edit a gateway, or restart anything. The scheduler
+notices the new node's cards, places a pod there, and the Service adds it to
+rotation once it passes its readiness probe. This is the whole reason to move off
+compose: adding a machine went from "edit .env on the gateway box and recreate
+it" to "join the cluster".
+
+**A bigger model instead of more copies** — one pod holding several cards:
+
+```yaml
+resources: { limits: { nvidia.com/gpu: 2 } }
+```
+with `TENSOR_PARALLEL: "2"` in `config.yaml`. That replaces the `vllm2` profile
+from the compose setup: an odd card count is just a replica count and a
+per-pod GPU count, not a second service definition.
+
 ## Prerequisites
+
+`setup.sh` handles the first two; they are listed here so you know what it did.
 
 - a cluster on the GPU machines — k3s is the least machinery for bare metal
 - the NVIDIA device plugin, so `nvidia.com/gpu` is a schedulable resource
+- the NVIDIA driver and Container Toolkit, which you already have if vLLM runs
+  under Docker today — the device plugin is a separate, Kubernetes-only piece
 - weights cached per node (`hostPath` below), or an RWX volume if you have one
 
 ## Use
