@@ -167,6 +167,24 @@ ssh -N -L 8602:localhost:8602 -L 8603:localhost:8603 <gpu-host>
 [**docs/dev-topology.html**](docs/dev-topology.html) draws all of it — what each
 service is, which profile starts it, and every port.
 
+### Stopping, restarting, starting over
+
+```bash
+docker compose ps                 # what's up
+docker compose restart infer      # bounce one service, same config
+docker compose up -d              # recreate whatever changed in .env
+docker compose down               # remove the containers; data survives
+```
+
+`restart` does **not** re-read `.env` or `compose.yaml` — only `up -d` recreates a
+container, which is what picks up an edit. And because Postgres and Redis are
+bind mounts under `data/` rather than named volumes, `down -v` does *not* delete
+them. To actually start from an empty database:
+
+```bash
+docker compose down && rm -rf data/postgres && docker compose up -d && pnpm migrate && pnpm seed
+```
+
 ### Working on the code
 
 Against the dev containers, using the `.venv` that `pnpm venv` builds. `pnpm run`

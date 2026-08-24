@@ -667,9 +667,11 @@ pnpm dev</pre>
             <td>you're touching ingest — it's a big image, so it stays opt-in</td>
           </tr>
           <tr>
-            <td><code>docker compose down</code> / <code>down -v</code></td>
-            <td>stops containers / stops and wipes the local DB</td>
-            <td>done for the day / the schema drifted</td>
+            <td><code>docker compose down</code></td>
+            <td>stops and removes the containers; the data survives</td>
+            <td>done for the day. Postgres and Redis are bind mounts under
+            <code>data/</code>, not named volumes, so <code>down -v</code> does <em>not</em> wipe
+            them — deleting <code>data/postgres</code> is what starts fresh</td>
           </tr>
         </tbody>
       </table>
