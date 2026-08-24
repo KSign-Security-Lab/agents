@@ -75,6 +75,7 @@ docker compose config --services     # what your .env starts right now
 | `dev` | postgres, redis | you're developing — this is the default in `.env.example` |
 | `gpu` | llm-gateway, vllm, infer | the machine has CUDA and serves the models |
 | `model` | vllm alone | an extra GPU box, pooled by the gateway on another machine |
+| `vllm2` | a second local vllm | this machine has an odd number of cards — see below |
 | `ingest` | worker | you're debugging ingest (big image: LibreOffice, OCR, ffmpeg) |
 
 Combine with commas — `dev,ingest`, or `gpu,dev` for both roles on one box. You
@@ -95,7 +96,26 @@ GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601
 
 `TENSOR_PARALLEL` splits one model across N cards; `DATA_PARALLEL` runs N copies
 and load-balances between them. They multiply, and the product should equal the
-number of cards you listed. `GPU_PEERS` is the other boxes as `ip:port`, so
+number of cards you listed.
+
+Both are **uniform**, which an odd card count can't always use — `TENSOR_PARALLEL`
+must divide the model's attention-head count, so 3 is usually invalid. For 3 cards
+as a tensor-parallel pair plus a single, add the `vllm2` profile:
+
+```bash
+COMPOSE_PROFILES=gpu,vllm2
+VLLM_GPUS=0,1   TENSOR_PARALLEL=2      # instance 1: two cards, split
+VLLM_2_GPUS=2                          # instance 2: the third card
+```
+
+`vllm-2` inherits the same image and the same command from a YAML anchor — only
+its environment differs, and all of it is in `.env`. The gateway pools both from
+the profile alone, so there's nothing to add to `GPU_PEERS`. Still one `.env`,
+still one `docker compose up -d`, and you never name a container.
+
+Check the model fits on one card before reaching for it — `docker compose logs
+vllm | grep -i "model weights"`. If it doesn't, the lone card can't serve it and
+fewer cards with `TENSOR_PARALLEL` is the right answer instead. `GPU_PEERS` is the other boxes as `ip:port`, so
 adding a machine is one more entry.
 
 **Ports are required and IPs are the right form.** The port is required because

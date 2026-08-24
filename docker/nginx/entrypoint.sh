@@ -26,6 +26,12 @@ TMPL="${TMPL:-/etc/nginx/templates/llm.conf.tmpl}"
 # written down: wherever this gateway runs, the gpu profile put a vllm with it.
 LOCAL="vllm:8000"
 
+# A second local instance is a compose profile, not a peer address: if vllm2 is
+# active there is a sibling container to pool, and .env said so once.
+case ",${COMPOSE_PROFILES:-}," in
+  *,vllm2,*) LOCAL="$LOCAL,vllm-2:8000" ;;
+esac
+
 PEERS=""
 for peer in $(printf '%s' "${GPU_PEERS:-}" | tr -d '[:space:]' | tr ',' ' '); do
   case "$peer" in
