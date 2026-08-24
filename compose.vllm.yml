@@ -23,9 +23,11 @@ x-gpu: &gpu
             capabilities: [gpu]
 
 x-vllm: &vllm
-  # Pinned deliberately. `latest` moved under this repo once already and the
-  # flags below were verified against 0.17 — bump it on purpose, not by pulling.
-  image: vllm/vllm-openai:v0.17.0
+  # Pinned. `latest` was pulling ~10 releases past the 0.17 this was written
+  # against; bump on purpose, not by pulling. Every flag below was checked
+  # present in v0.27.1's EngineArgs (structured-outputs-config, tensor- and
+  # data-parallel-size), so the version is current, not merely frozen.
+  image: vllm/vllm-openai:v0.27.1
   ipc: host
   shm_size: "8gb"
   restart: unless-stopped

@@ -66,4 +66,30 @@ or, on k3s, import the tarball onto each node — no registry needed:
 docker save agents/infer:dev | sudo k3s ctr images import -
 ```
 
-`vllm/vllm-openai` is pinned and pulls from Docker Hub, so it needs nothing.
+`vllm/vllm-openai:v0.27.1` is pinned and pulls from Docker Hub, so it needs
+nothing.
+
+## A private registry, if you'd rather push than import
+
+One container on the GPU server, and k3s has to be told to trust it:
+
+```bash
+docker run -d --restart=always -p 5000:5000 --name registry registry:2
+```
+
+```yaml
+# /etc/rancher/k3s/registries.yaml on every node, then restart k3s
+mirrors:
+  "gpu-a:5000":
+    endpoint: ["http://gpu-a:5000"]
+configs:
+  "gpu-a:5000":
+    tls: { insecure_skip_verify: true }
+```
+
+Worth it once more than a couple of nodes pull the same image. For three nodes,
+`k3s ctr images import` is fewer moving parts.
+
+Running **k3s itself** in a container (k3d) is a different thing and not what you
+want here — GPU passthrough into nested containers is avoidable pain. Install k3s
+on the metal; the workloads are containers either way.

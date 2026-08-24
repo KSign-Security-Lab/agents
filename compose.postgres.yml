@@ -9,7 +9,8 @@
 services:
   postgres:
     profiles: ["dev"]
-    image: pgvector/pgvector:pg17       # needs pgvector >= 0.7 for sparsevec
+    # Pinned: pgvector 0.8.6 on Postgres 17. sparsevec needs pgvector >= 0.7.
+    image: pgvector/pgvector:0.8.6-pg17-trixie
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agents}

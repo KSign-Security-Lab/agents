@@ -9,7 +9,7 @@
 services:
   redis:
     profiles: ["dev"]
-    image: redis:7-alpine
+    image: redis:8.8.2-alpine3.23
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
     volumes:

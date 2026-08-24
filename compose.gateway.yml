@@ -10,7 +10,7 @@
 services:
   llm-gateway:
     profiles: ["gpu"]
-    image: nginx:alpine
+    image: nginx:1.31.4-alpine
     restart: unless-stopped
     environment:
       # The OTHER GPU machines, by hostname or IP — this machine's own vllm is

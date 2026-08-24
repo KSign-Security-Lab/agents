@@ -28,7 +28,7 @@ spec:
       containers:
         - name: vllm
           # Pinned: on a cluster, `latest` lets nodes run different versions.
-          image: vllm/vllm-openai:v0.17.0
+          image: vllm/vllm-openai:v0.27.1
           command: ["/bin/sh", "-c"]
           args:
             - |
