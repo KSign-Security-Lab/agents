@@ -28,12 +28,6 @@ class RerankResponse(BaseModel):
     scores: list[float]
 
 
-class TranscribeRequest(BaseModel):
-    # Path relative to the shared /storage mount; the audio is never sent over HTTP.
-    key: str
-    language: str | None = None
-
-
 class TranscriptSegment(BaseModel):
     start_ms: int
     end_ms: int

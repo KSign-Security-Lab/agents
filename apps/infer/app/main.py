@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
+import tempfile
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from infer.app.config import settings
 from infer.app.models import get_asr, get_embedder, get_reranker, loaded
@@ -19,7 +21,6 @@ from infer.app.schemas import (
     EmbedResponse,
     RerankRequest,
     RerankResponse,
-    TranscribeRequest,
     TranscribeResponse,
     TranscriptSegment,
 )
@@ -107,21 +108,39 @@ async def rerank(req: RerankRequest) -> RerankResponse:
 
 
 @app.post("/transcribe", response_model=TranscribeResponse)
-async def transcribe(req: TranscribeRequest) -> TranscribeResponse:
-    src = (Path(settings.storage_root) / req.key).resolve()
-    root = Path(settings.storage_root).resolve()
-    if not src.is_relative_to(root):
-        raise HTTPException(400, "key escapes storage root")
-    if not src.exists():
-        raise HTTPException(404, f"media not found: {req.key}")
+async def transcribe(
+    file: UploadFile = File(...),
+    language: str | None = Form(None),
+) -> TranscribeResponse:
+    """Transcribe an uploaded recording.
 
+    The audio arrives in the request rather than being read off a shared mount.
+    That mount only ever existed because this service and the ingest worker were
+    containers on one host; once they can be on different hosts — a second dev
+    machine, or two nodes of a cluster — a path is not something they can share.
+    The caller sends the extracted 16kHz mono WAV, which is about 115MB an hour,
+    not the original recording.
+    """
+    tmp = Path(tempfile.mkdtemp(prefix="asr-")) / (Path(file.filename or "audio").name or "audio")
+    try:
+        with tmp.open("wb") as out:
+            while chunk := await file.read(8 << 20):
+                out.write(chunk)
+        if tmp.stat().st_size == 0:
+            raise HTTPException(400, "empty upload")
+        return await _transcribe_file(tmp, language)
+    finally:
+        shutil.rmtree(tmp.parent, ignore_errors=True)
+
+
+async def _transcribe_file(src: Path, language: str | None) -> TranscribeResponse:
     t0 = time.perf_counter()
 
     def _run() -> tuple[str, float, list[TranscriptSegment]]:
         model = get_asr()
         segments, info = model.transcribe(
             str(src),
-            language=req.language or settings.asr_language,
+            language=language or settings.asr_language,
             vad_filter=True,
             # Sentence-ish segments keep transcript citations tight enough that
             # seeking the player lands on the quoted moment.
@@ -140,7 +159,7 @@ async def transcribe(req: TranscribeRequest) -> TranscribeResponse:
     async with _asr_sem:
         language, duration, segments = await asyncio.to_thread(_run)
 
-    log.info("transcribe %s segs=%d %.0fms", req.key, len(segments),
+    log.info("transcribe %s segs=%d %.0fms", src.name, len(segments),
              (time.perf_counter() - t0) * 1000)
     return TranscribeResponse(
         language=language,

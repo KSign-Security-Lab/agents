@@ -49,10 +49,21 @@ Written against a cluster I do not have. The manifests are schema-valid
 here has scheduled a real pod or touched a real GPU. Treat the first
 `rollout status` as the actual test.
 
-## One thing that must be fixed first
+## Getting `agents/infer:dev` onto the cluster
 
-`infer`'s `/transcribe` takes a storage *key* and reads the file off its own
-filesystem. In compose that works because it and `worker` bind-mount the same
-host directory; pods on different nodes cannot. Either give the endpoint an
-upload path (small change to `TranscribeRequest`), or put `/storage` on an RWX
-volume. Embeddings and reranking are unaffected — they pass text over HTTP.
+Kubernetes pulls images; it cannot use your local Docker daemon's cache. That
+image is built by compose and exists nowhere a cluster can fetch it, so the pod
+would sit in `ImagePullBackOff`. Either push it to a registry:
+
+```bash
+docker tag agents/infer:dev registry.internal:5000/agents/infer:0.1
+docker push registry.internal:5000/agents/infer:0.1     # then edit infer.yaml
+```
+
+or, on k3s, import the tarball onto each node — no registry needed:
+
+```bash
+docker save agents/infer:dev | sudo k3s ctr images import -
+```
+
+`vllm/vllm-openai` is pinned and pulls from Docker Hub, so it needs nothing.

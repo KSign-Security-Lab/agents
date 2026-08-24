@@ -6,6 +6,7 @@ Korean full-text tokenizer in Postgres.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -46,10 +47,21 @@ class InferClient:
         out = await self._post("/rerank", {"query": query, "passages": passages})
         return out["scores"]
 
-    async def transcribe(self, storage_key: str, *, language: str | None = None) -> dict[str, Any]:
-        """The sidecar reads the media straight off the shared /storage mount, so
-        a 2GB recording is never pushed through HTTP."""
-        return await self._post("/transcribe", {"key": storage_key, "language": language})
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8), reraise=True)
+    async def transcribe(self, media: Path, *, language: str | None = None) -> dict[str, Any]:
+        """Upload a recording and get timestamped segments back.
+
+        The file is sent rather than named: infer used to read it off a /storage
+        mount shared with the worker, which stops being possible the moment the
+        two are on different machines. What goes over the wire is the extracted
+        16kHz mono WAV — roughly 115MB an hour, not the original recording.
+        """
+        with media.open("rb") as fh:
+            files = {"file": (media.name, fh, "application/octet-stream")}
+            data = {"language": language} if language else {}
+            r = await self._client.post("/transcribe", files=files, data=data)
+        r.raise_for_status()
+        return r.json()
 
     async def health(self) -> dict[str, Any]:
         r = await self._client.get("/health")

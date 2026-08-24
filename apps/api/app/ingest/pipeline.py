@@ -208,7 +208,10 @@ async def _stage_transcribe(db: AsyncSession, doc: Document, work: Path) -> None
     """Transcribe a recording into timestamped segments."""
     await _set_status(db, doc, DocStatus.transcribing)
 
-    result = await infer_client.transcribe(doc.key_media or doc.key_original)
+    # The path is resolved here, on the machine that holds the file, and the bytes
+    # are uploaded — infer may not be on this host.
+    media = LocalStorage().path(doc.key_media or doc.key_original)
+    result = await infer_client.transcribe(media)
     segments = result.get("segments", [])
     if not segments:
         raise RuntimeError("transcription produced no speech segments")

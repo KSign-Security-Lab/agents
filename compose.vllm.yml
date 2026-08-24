@@ -23,7 +23,9 @@ x-gpu: &gpu
             capabilities: [gpu]
 
 x-vllm: &vllm
-  image: vllm/vllm-openai:latest        # verified against vLLM 0.17 / torch 2.10
+  # Pinned deliberately. `latest` moved under this repo once already and the
+  # flags below were verified against 0.17 — bump it on purpose, not by pulling.
+  image: vllm/vllm-openai:v0.17.0
   ipc: host
   shm_size: "8gb"
   restart: unless-stopped
