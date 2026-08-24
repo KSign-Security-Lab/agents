@@ -18,7 +18,7 @@
 # ---------------------------------------------------------------------------
 #  infer
 # ---------------------------------------------------------------------------
-FROM vllm/vllm-openai:latest AS infer
+FROM vllm/vllm-openai:v0.27.1 AS infer
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -62,10 +62,23 @@ Two kinds of machine, sharing nothing but a network.
 They hold no configuration of their own. Join the cluster and they're done.
 
 ```bash
-sudo k8s/setup.sh server                       # the first machine
-sudo k8s/setup.sh agent <server-ip> <token>    # each one after it
-kubectl apply -k k8s/
+nvidia-smi                     # 1. the driver already lists your cards
+nvidia-ctk --version           # 2. and the Container Toolkit is there
+
+sudo k8s/setup.sh server       # 3. k3s + device plugin + a real GPU pod as proof
+
+pnpm image:infer                                  # 4. build the one image we own
+docker save agents/infer:dev | sudo k3s ctr images import -
+
+kubectl apply -k k8s/                             # 5. deploy
+kubectl -n agents rollout status deploy/vllm      # 6. ~30GB on the first run
+curl -s localhost:30862/v1/models                 # 7. 200 naming "main"
 ```
+
+Steps 1–2 are already true if vLLM has ever run under Docker on that machine.
+Step 4 exists because Kubernetes pulls images and cannot read Docker's local
+cache. A second machine later is `sudo k8s/setup.sh agent <server-ip> <token>`
+plus a `kubectl scale` — nothing else.
 
 `k8s/setup.sh` checks the driver and toolkit, installs k3s and the NVIDIA device
 plugin, and finishes by running a real GPU pod — if that passes, the cluster can

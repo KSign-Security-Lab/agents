@@ -133,10 +133,8 @@
   .panel { fill: var(--surface-2); stroke-width: 1.5; stroke-dasharray: 7 5; }
   .panel-gpu { stroke: var(--gpu); }
   .panel-loc { stroke: var(--loc); }
-  .gap-band { fill: var(--band); }
   .band { fill: var(--surface); stroke: var(--rule); stroke-width: 1; }
   .node { fill: var(--surface); stroke: var(--rule); stroke-width: 1.25; }
-  .node-opt { fill: none; stroke: var(--rule); stroke-width: 1.25; stroke-dasharray: 5 4; }
   .svg-title { font-family: var(--mono); font-size: 14px; font-weight: 600; fill: var(--ink); letter-spacing: -0.01em; }
   .svg-sub { font-family: var(--mono); font-size: 11px; fill: var(--ink-2); }
   .svg-eyebrow { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.12em; }
@@ -149,7 +147,6 @@
   .head-hot { fill: var(--gpu); }
   .flow { fill: none; stroke: var(--ink-2); stroke-width: 1.4; }
   .flow-hot { fill: none; stroke: var(--gpu); stroke-width: 1.8; }
-  .tunnel-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; fill: var(--ink-3); }
 
   .step { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 8px; }
 
@@ -331,6 +328,62 @@
     <span class="inline">.env</span>, and the cluster decides which pod on which machine answers. Add
     a GPU box, lose one, replace one — nothing on this side changes.</figcaption>
   </figure>
+
+  <section>
+    <h2 class="section">Setting up the GPU server</h2>
+    <p class="lede" style="font-size:16px">In order, once. Steps 1–2 are already true if vLLM has
+    ever run under Docker on this machine.</p>
+
+    <div class="tbl" style="margin-top:22px">
+      <table>
+        <thead><tr><th>#</th><th>On the GPU machine</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1</td>
+            <td><pre style="font-size:12.5px">nvidia-smi</pre></td>
+            <td>The driver. If this lists your cards, it's done.</td></tr>
+          <tr><td class="num">2</td>
+            <td><pre style="font-size:12.5px">nvidia-ctk --version</pre></td>
+            <td>The Container Toolkit. Present already if Docker has ever run a GPU container here.</td></tr>
+          <tr><td class="num">3</td>
+            <td><pre style="font-size:12.5px">sudo k8s/setup.sh server</pre></td>
+            <td>Installs k3s and the NVIDIA device plugin, then runs a real GPU pod. If that last
+            step passes, the cluster can serve models. It refuses early with the fix in the message
+            if 1 or 2 are missing.</td></tr>
+          <tr><td class="num">4</td>
+            <td><pre style="font-size:12.5px">pnpm image:infer
+docker save agents/infer:dev \
+  | sudo k3s ctr images import -</pre></td>
+            <td>Kubernetes pulls images and can't read Docker's local cache, so the one image we
+            build has to be handed to containerd. A registry is the alternative — see
+            <code>k8s/README.md</code>.</td></tr>
+          <tr><td class="num">5</td>
+            <td><pre style="font-size:12.5px">kubectl apply -k k8s/</pre></td>
+            <td>Creates the namespace, ConfigMap, both Deployments and both Services.</td></tr>
+          <tr><td class="num">6</td>
+            <td><pre style="font-size:12.5px">kubectl -n agents \
+  rollout status deploy/vllm</pre></td>
+            <td>The first run downloads ~30GB of weights before the GPU is touched, so this waits
+            minutes. <code>logs -f deploy/vllm</code> shows the shards arriving.</td></tr>
+          <tr><td class="num">7</td>
+            <td><pre style="font-size:12.5px">curl -s localhost:30862/v1/models</pre></td>
+            <td>The honest check. A 200 naming <code>main</code> means it is serving; anything else
+            and the model is not up yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout" style="margin-top:24px">
+      <p class="step">Then every developer, once</p>
+      <pre>cp .env.example .env
+$EDITOR .env              <span class="c"># COMPOSE_PROFILES=dev, GPU_HOST=&lt;that server's IP&gt;</span>
+docker compose up -d      <span class="c"># postgres + redis</span>
+pnpm install &amp;&amp; pnpm venv
+pnpm dev</pre>
+      <p>No further coordination. Adding a second GPU machine later is
+      <code>sudo k8s/setup.sh agent &lt;server-ip&gt; &lt;token&gt;</code> plus a
+      <code>kubectl scale</code>, and no laptop's <code>.env</code> changes.</p>
+    </div>
+  </section>
 
   <section>
     <h2 class="section">Two kinds of machine</h2>

@@ -17,6 +17,7 @@
     "lint": "cd apps && ../.venv/bin/ruff check --fix api",
     "eval": "cd apps && PYTHONPATH=. ../.venv/bin/python -m api.scripts.run_eval",
     "build": "turbo run build",
+    "image:infer": "docker build -f docker/base.Dockerfile --target infer -t agents/infer:dev .",
     "samples": "docker compose run --rm --no-deps -v \"$PWD:/work\" -w /work worker python scripts/make_samples.py samples",
     "ingest": "docker compose up -d --wait worker && docker compose exec -T worker python -m api.scripts.ingest_local",
     "bboxes": "docker compose up -d --wait worker && docker compose exec -T worker python -m api.scripts.citation_check"

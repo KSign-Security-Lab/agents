@@ -21,6 +21,11 @@ spec:
       containers:
         - name: infer
           image: agents/infer:dev
+          # Built locally and imported onto the nodes, not pulled from a
+          # registry — see k8s/README.md. IfNotPresent is the default for a
+          # non-:latest tag, but say it, because getting this wrong is an
+          # ImagePullBackOff that looks like a network problem.
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef: { name: models }
           env:

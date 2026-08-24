@@ -240,9 +240,21 @@ definition.
 ## Use
 
 ```bash
+# 1-2. already true if vLLM has ever run under Docker here
+nvidia-smi                     # the driver lists your cards
+nvidia-ctk --version           # the Container Toolkit
+
+# 3. the cluster, the device plugin, and a real GPU pod as proof
+sudo k8s/setup.sh server
+
+# 4. the one image we build, handed to containerd
+pnpm image:infer
+docker save agents/infer:dev | sudo k3s ctr images import -
+
+# 5-7. deploy, wait for the weights, prove it serves
 kubectl apply -k k8s/
-kubectl -n agents rollout status deploy/vllm      # first run pulls ~30GB
-kubectl -n agents get svc
+kubectl -n agents rollout status deploy/vllm      # ~30GB on the first run
+curl -s localhost:30862/v1/models                 # 200 naming "main"
 ```
 
 Then in each developer's `.env`, point at any node — the NodePorts are fixed:
