@@ -33,10 +33,38 @@ sudo cat /var/lib/rancher/k3s/server/node-token
 k8s/setup.sh agent <first-machine-ip> <that-token>
 ```
 
-It refuses early if the NVIDIA driver or Container Toolkit is missing, installs
-k3s, applies the NVIDIA device plugin, and then prints how many GPUs the
-scheduler can actually see. If that last number is zero, nothing else will work
-and the message says where to look.
+`sudo k8s/setup.sh verify` checks a node and changes nothing, which is the same
+code path — so a healthy node and a freshly built one are verified identically.
+
+What it checks, in order, refusing early with a message that says what to do:
+
+1. Linux, root, and `curl`/`awk`/`sed`
+2. the NVIDIA driver — prints each card and the driver version
+3. the Container Toolkit — you already have this if vLLM runs under Docker here
+4. the ports k3s needs between nodes (6443/tcp, 8472/udp, 10250/tcp). It reports
+   an active `firewalld` or `ufw` rather than editing rules; a silent firewall
+   change is worse than a warning
+5. installs k3s, waits for the node to be Ready
+6. **the `nvidia` RuntimeClass** — see below
+7. the device plugin, patched onto that RuntimeClass, and its rollout
+8. how many GPUs the scheduler can actually see, failing if zero
+9. a **real GPU pod** — a Job running `nvidia-smi -L`. If that passes, the
+   cluster can serve models; if not, it leaves the Job in place to inspect
+
+### The RuntimeClass, which is the trap
+
+k3s detects `nvidia-container-runtime` and registers it as a RuntimeClass named
+`nvidia` — but it does **not** make it the default. A pod that doesn't ask for it
+gets the plain runtime, sees no devices, and fails in a way that reads like a
+driver problem. So `k8s/vllm.yaml` and `k8s/infer.yaml` both set:
+
+```yaml
+runtimeClassName: nvidia
+```
+
+The upstream device-plugin manifest doesn't set it either, so `setup.sh` patches
+the DaemonSet. If k3s was installed *before* the toolkit, the RuntimeClass won't
+exist — `systemctl restart k3s` creates it, and the script says so.
 
 ## Adding a machine, or more pods
 

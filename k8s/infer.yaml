@@ -13,6 +13,11 @@ spec:
     metadata:
       labels: { app: infer }
     spec:
+      # k3s exposes the NVIDIA toolkit as a RuntimeClass and does NOT make it the
+      # default. Without this the pod gets the plain runtime, sees no devices, and
+      # fails in a way that reads like a driver problem. Delete this line only on a
+      # cluster where nvidia is already the default runtime.
+      runtimeClassName: nvidia
       containers:
         - name: infer
           image: agents/infer:dev

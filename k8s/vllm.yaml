@@ -18,6 +18,11 @@ spec:
     metadata:
       labels: { app: vllm }
     spec:
+      # k3s exposes the NVIDIA toolkit as a RuntimeClass and does NOT make it the
+      # default. Without this the pod gets the plain runtime, sees no devices, and
+      # fails in a way that reads like a driver problem. Delete this line only on a
+      # cluster where nvidia is already the default runtime.
+      runtimeClassName: nvidia
       # Spread replicas over nodes rather than stacking them on one box.
       topologySpreadConstraints:
         - maxSkew: 1
