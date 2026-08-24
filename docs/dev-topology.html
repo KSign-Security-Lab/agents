@@ -1,4 +1,4 @@
-<title>Two Machines, One Stack</title>
+<title>One Env Per Machine</title>
 
 <!--
   Rendered as an Artifact: https://claude.ai/code/artifact/cfb43126-9aac-491a-a1c7-db7585980c80
@@ -151,28 +151,6 @@
   .flow-hot { fill: none; stroke: var(--gpu); stroke-width: 1.8; }
   .tunnel-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; fill: var(--ink-3); }
 
-  /* ------------------------------------------------------------- cards */
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px; }
-
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--rule);
-    border-radius: 12px;
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
-
-  .card-gpu { border-top: 3px solid var(--gpu); }
-  .card-loc { border-top: 3px solid var(--loc); }
-
-  .card h2 { font-family: var(--mono); font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
-  .card-gpu h2 { color: var(--gpu); }
-  .card-loc h2 { color: var(--loc); }
-
-  .card .who { font-size: 15px; color: var(--ink-2); margin: -10px 0 0; }
-
   .step { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 8px; }
 
   pre {
@@ -190,7 +168,6 @@
 
   pre .c { color: var(--ink-3); }
   pre .k { color: var(--loc); font-weight: 600; }
-  .card-gpu pre .k { color: var(--gpu); }
 
   /* ------------------------------------------------------------ roster */
   .roster { display: flex; flex-direction: column; gap: 32px; }
@@ -274,10 +251,11 @@
 <div class="wrap">
 
   <header>
-    <p class="eyebrow">문서 기반 에이전트 · COMPOSE_PROFILES</p>
-    <h1><span class="a">One GPU server</span> serves the models.<br><span class="b">Your laptop</span> runs everything else.</h1>
-    <p class="lede">Nothing you run locally needs a GPU, so this works on a Mac. The two services that
-    need CUDA live on the shared box; the two services you actually edit run on your host with hot reload.</p>
+    <p class="eyebrow">문서 기반 에이전트 · deployment</p>
+    <h1>Every machine is <span class="b">one <code>.env</code></span><br>and <span class="a">one command</span>.</h1>
+    <p class="lede">There is a single <code>compose.yaml</code>. What a machine runs is one line in its
+    own <code>.env</code>, and then <code>docker compose up -d</code> — the same on a laptop, a GPU
+    server, or a spare GPU box. Nothing you run locally needs CUDA, so a Mac is fine.</p>
   </header>
 
   <figure>
@@ -383,12 +361,77 @@
 
   <!-- ================================ commands ================================ -->
   <section>
+    <h2 class="section">Four kinds of machine</h2>
+    <p class="lede" style="font-size:16px">Each column is a complete <code>.env</code>. Copy
+    <code>.env.example</code>, set these, run <code>docker compose up -d</code>. Nothing else differs
+    between machines, and no machine needs to know about any other except the one that pools them.</p>
+
+    <div class="tbl" style="margin-top:22px">
+      <table>
+        <thead>
+          <tr><th>Machine</th><th>Its .env says</th><th>Containers it runs</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="svc svc-loc">a developer's laptop</span></td>
+            <td><pre style="font-size:12.5px">COMPOSE_PROFILES=dev
+GPU_HOST=10.0.0.11</pre></td>
+            <td><code>postgres</code> :5433<br><code>redis</code> :6380<br><span class="where">then
+            <code>pnpm dev</code> for api + web on the host</span></td>
+          </tr>
+          <tr>
+            <td><span class="svc svc-gpu">the GPU server</span><br><span class="where">the one
+            developers point at</span></td>
+            <td><pre style="font-size:12.5px">COMPOSE_PROFILES=gpu
+BIND_ADDR=0.0.0.0
+VLLM_GPUS=0
+INFER_GPUS=1</pre></td>
+            <td><code>llm-gateway</code> :8602<br><code>vllm</code> :8601<br><code>infer</code> :8603</td>
+          </tr>
+          <tr>
+            <td><span class="svc svc-gpu">a spare GPU box</span><br><span class="where">pooled by the
+            server above</span></td>
+            <td><pre style="font-size:12.5px">COMPOSE_PROFILES=model
+BIND_ADDR=0.0.0.0
+VLLM_GPUS=0</pre></td>
+            <td><code>vllm</code> :8601<br><span class="where">no gateway, no infer — it only serves
+            the model</span></td>
+          </tr>
+          <tr>
+            <td><span class="svc svc-loc">one box doing both</span></td>
+            <td><pre style="font-size:12.5px">COMPOSE_PROFILES=gpu,dev
+BIND_ADDR=0.0.0.0</pre></td>
+            <td>all five of the above</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout" style="margin-top:24px">
+      <p class="step">Joining them up</p>
+      <p>Only the GPU server needs to know the others exist. On <em>its</em>
+      <span class="inline">.env</span>, one line:</p>
+      <pre><span class="c"># the OTHER GPU boxes, ip:port — this machine's own vllm is never listed</span>
+GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601</pre>
+      <p>Its gateway then balances across all of them with <code>least_conn</code>, dropping one that
+      stops answering. Developers still set a single <span class="inline">GPU_HOST</span> and never
+      learn how many machines there are. Use IP addresses: those entries reach nginx unchanged, and a
+      hostname would be resolved by the container's DNS, which never reads the host's
+      <code>/etc/hosts</code>.</p>
+      <p>Adding another box: <code>COMPOSE_PROFILES=model</code> there, one more entry here, then
+      <code>docker compose up -d llm-gateway</code> — under a second, with no model reloaded. Note
+      <code>restart</code> will <em>not</em> pick it up: a container's environment is fixed when it is
+      created.</p>
+    </div>
+  </section>
+
+  <section>
     <h2 class="section">What each profile covers</h2>
 
     <figure>
       <div class="scroller" tabindex="0">
         <svg viewBox="0 0 1000 470" role="img"
-             aria-label="compose.yaml contains six services across four profiles. The dev profile holds postgres and redis. The ingest profile holds the worker, which depends on postgres and redis, so ingest cannot be used without dev. The gpu profile holds llm-gateway, vllm and infer. vllm is also in a model profile, for an extra GPU box that serves the model alone and is pooled by another machine's gateway. Scaling is not a profile: TENSOR_PARALLEL and DATA_PARALLEL scale the single vllm service across local GPUs, and GPU_PEERS gives the IPs of other GPU machines for the gateway to pool.">
+             aria-label="compose.yaml contains seven services across five profiles. The dev profile holds postgres and redis. The ingest profile holds the worker, which depends on postgres and redis, so ingest cannot be used without dev. The gpu profile holds llm-gateway, vllm and infer. vllm is also in a model profile, for an extra GPU box that serves the model alone and is pooled by another machine's gateway. A vllm2 profile adds a second local vllm on its own cards, for a machine whose card count does not divide evenly. Scaling otherwise is not a profile: TENSOR_PARALLEL and DATA_PARALLEL scale the one vllm service across local GPUs, and GPU_PEERS gives the IPs of other GPU machines for the gateway to pool.">
           <defs>
             <marker id="pa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <polygon class="head" points="0,1 10,5 0,9"></polygon>
@@ -436,18 +479,18 @@
           <text class="svg-sub" x="624" y="295">:8603 · embed · rerank · ASR</text>
 
           <line class="flow-hot" x1="758" y1="152" x2="758" y2="174" marker-end="url(#pa-hot)"></line>
-          <text class="svg-edge-hot" x="768" y="169">always pooled</text>
+          <text class="svg-edge-hot" x="768" y="169">pooled</text>
 
-          <!-- ===================== scaling is not a profile ==================== -->
-          <text class="svg-eyebrow e-gpu" x="582" y="362">SCALING — NOT A PROFILE</text>
+          <!-- ============================== vllm2 ============================= -->
+          <text class="svg-eyebrow e-gpu" x="582" y="362">vllm2 — FOR AN ODD CARD COUNT</text>
           <rect class="panel panel-gpu" x="580" y="374" width="380" height="76" rx="10"></rect>
-          <text class="svg-sub" x="600" y="400">TENSOR_PARALLEL · DATA_PARALLEL</text>
-          <text class="svg-sub" x="600" y="416">→ more cards, same one vllm service</text>
-          <text class="svg-sub" x="600" y="436">GPU_PEERS → name the other machines</text>
+          <rect class="node" x="608" y="392" width="300" height="44" rx="6"></rect>
+          <text class="svg-title" x="624" y="410">vllm-2</text>
+          <text class="svg-sub" x="624" y="427">:8611 · its own cards, same command</text>
 
           <!-- ============================== thesis ============================ -->
-          <text class="svg-title" x="500" y="186" text-anchor="middle">6 services</text>
-          <text class="svg-title" x="500" y="208" text-anchor="middle">4 profiles</text>
+          <text class="svg-title" x="500" y="186" text-anchor="middle">7 services</text>
+          <text class="svg-title" x="500" y="208" text-anchor="middle">5 profiles</text>
           <text class="svg-sub" x="500" y="240" text-anchor="middle">only vllm belongs</text>
           <text class="svg-sub" x="500" y="256" text-anchor="middle">to two of them:</text>
           <text class="svg-sub" x="500" y="272" text-anchor="middle">gpu, and model</text>
@@ -476,6 +519,7 @@
           <tr><td><code>dev,ingest</code></td><td>postgres, redis, worker</td><td>…also debugging ingest</td></tr>
           <tr><td><code>gpu</code></td><td>llm-gateway, vllm, infer</td><td>a GPU server — any number of cards</td></tr>
           <tr><td><code>model</code></td><td>vllm</td><td>an extra GPU box, pooled by another machine's gateway</td></tr>
+          <tr><td><code>gpu,vllm2</code></td><td>…plus a second vllm on its own cards</td><td>an odd card count — 3 cards as a pair plus a single</td></tr>
           <tr><td><code>gpu,dev</code></td><td>all five</td><td>one box doing both</td></tr>
           <tr>
             <td><code>ingest</code></td>
@@ -502,7 +546,7 @@
         <div class="roster-head">
           <span class="chip chip-gpu">gpu</span>
           <h3>COMPOSE_PROFILES=gpu</h3>
-          <span class="note">Three services. <code>vllm</code> and <code>infer</code> are the two that need CUDA, which is the entire reason this profile isn't local.</span>
+          <span class="note">Three services, plus an optional second vllm. <code>vllm</code> and <code>infer</code> need CUDA, which is the entire reason none of this is local.</span>
         </div>
         <div class="tbl">
           <table>
@@ -525,6 +569,14 @@
                 count</strong>: <code>TENSOR_PARALLEL</code> splits a model across cards,
                 <code>DATA_PARALLEL</code> runs that many copies inside it. Published on 8601 so a
                 gateway on another machine can pool it.</td>
+              </tr>
+              <tr>
+                <td><span class="svc svc-gpu">vllm-2</span><br><span class="where">profile: vllm2</span></td>
+                <td class="where">container · :8611</td>
+                <td>A second instance for a card count that doesn't divide evenly —
+                <code>TENSOR_PARALLEL</code> must divide the model's attention-head count, so 3 is
+                usually invalid. Same image and the same command, inherited from a YAML anchor; only
+                its cards differ. The gateway pools it from the profile alone.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-gpu">infer</span></td>
@@ -585,54 +637,6 @@
             </tbody>
           </table>
         </div>
-      </div>
-
-    </div>
-  </section>
-
-  <section>
-    <h2 class="section">What to run, on which machine</h2>
-    <div class="cards">
-
-      <div class="card card-gpu">
-        <h2>GPU server</h2>
-        <p class="who">Once, by whoever owns the box — then again only after a reboot.</p>
-        <div>
-          <p class="step">First time</p>
-<pre>cp .env.example .env
-$EDITOR .env    <span class="c"># COMPOSE_PROFILES=gpu</span>
-                <span class="c"># VLLM_GPUS, BIND_ADDR</span></pre>
-        </div>
-        <div>
-          <p class="step">Serve it</p>
-<pre>docker compose up -d
-docker compose logs -f vllm
-docker compose config --profiles  <span class="c"># what else exists</span></pre>
-        </div>
-        <p class="who">No Postgres, no Redis, no web, no worker on this box — the <span class="inline">gpu</span> profile
-        selects only these services out of <span class="inline">compose.yaml</span>.</p>
-      </div>
-
-      <div class="card card-loc">
-        <h2>Your machine</h2>
-        <p class="who">Every developer, on their own laptop.</p>
-        <div>
-          <p class="step">First time</p>
-<pre>cp .env.example .env
-$EDITOR .env    <span class="c"># COMPOSE_PROFILES=dev, GPU_HOST</span></pre>
-        </div>
-        <div>
-          <p class="step">Every day</p>
-<pre><span class="c"># only if the GPU box stays on loopback</span>
-ssh -N -L 8602:localhost:8602 \
-       -L 8603:localhost:8603 gpu-host
-
-pnpm install &amp;&amp; pnpm venv
-pnpm dev</pre>
-        </div>
-        <p class="who">Starts the containers, migrates, seeds <span class="inline">dev@agents.dev / devdev</span>,
-        then runs <span class="inline">api</span> and <span class="inline">web</span> with reload. Ctrl-C stops
-        the two processes and leaves the containers up, so the next run takes seconds.</p>
       </div>
 
     </div>
@@ -703,15 +707,6 @@ pnpm dev</pre>
       </table>
     </div>
   </section>
-
-  <div class="callout">
-    <p class="step">One file, one command, everywhere</p>
-    <p>There is a single <span class="inline">compose.yaml</span>, and every machine is described
-    entirely by its own <span class="inline">.env</span> — so <span class="inline">docker compose up -d</span>
-    is the command on a laptop, on a GPU server, and on an extra GPU box alike. Want two roles on one
-    machine? <span class="inline">COMPOSE_PROFILES=gpu,dev</span>. There is no separate all-in-one
-    path to learn, and no combined stack that can drift from what developers actually run.</p>
-  </div>
 
   <footer>
     Config is one file: <code>.env</code> at the repo root, copied from <code>.env.example</code>.
