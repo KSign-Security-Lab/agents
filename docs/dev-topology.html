@@ -712,9 +712,9 @@ GPU_PEERS=10.0.0.12:8601,10.0.0.13:8601</pre>
     Config is one file: <code>.env</code> at the repo root, copied from <code>.env.example</code>.
     Compose interpolates it, and <code>apps/api/app/config.py</code> reads it by absolute path to
     assemble the database and model URLs — so one file describes a machine, whichever role it has,
-    and there is no second config location anywhere. The compose definitions are split by role under
-    <code>docker/compose/</code> and pulled together by <code>compose.yaml</code>, which changes
-    nothing about how you run it.
+    and there is no second config location anywhere. The compose definitions are one file per service —
+    <code>compose.vllm.yml</code>, <code>compose.postgres.yml</code> and so on — pulled together by
+    <code>compose.yaml</code>, which changes nothing about how you run it.
   </footer>
 
 </div>

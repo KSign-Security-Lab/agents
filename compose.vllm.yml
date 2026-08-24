@@ -1,9 +1,14 @@
 # ---------------------------------------------------------------------------
-#  Services that need CUDA: the gateway, vllm, an optional second vllm, infer.
-#  Profiles: gpu (a whole GPU server), model (vllm alone), vllm2 (the second).
+#  vllm — the model server, and an optional second instance.
 #
-#  Included by ../../compose.yaml — never used directly. What starts is decided
-#  by COMPOSE_PROFILES in .env at the repo root.
+#  Included by compose.yaml — never used directly. What starts is decided by
+#  COMPOSE_PROFILES in .env at the repo root.
+#
+#  Profiles: gpu / model for the first, vllm2 for the second.
+#
+#  Both live here on purpose. A YAML anchor cannot cross a file boundary, and
+#  they share one: the same image, the same 15-line `vllm serve` command, only
+#  different cards. Splitting them would mean duplicating that command.
 # ---------------------------------------------------------------------------
 x-gpu: &gpu
   # All GPUs are exposed to the container; CUDA_VISIBLE_DEVICES selects which
@@ -55,34 +60,6 @@ x-vllm: &vllm
   networks: [agents]
 
 services:
-  llm-gateway:
-    profiles: ["gpu"]
-    image: nginx:alpine
-    restart: unless-stopped
-    environment:
-      # The OTHER GPU machines, by hostname or IP — this machine's own vllm is
-      # always in the pool, so it is never listed. GPU_PEERS=10.0.0.12:8601 makes
-      # this a least_conn pool over three.
-      GPU_PEERS: ${GPU_PEERS:-}
-      # so the pool picks up vllm-2 when that profile is active
-      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
-      VLLM_PORT: ${VLLM_PORT:-8601}
-    volumes:
-      - ./docker/nginx/llm-gateway.conf.tmpl:/etc/nginx/templates/llm.conf.tmpl:ro
-      - ./docker/nginx/entrypoint.sh:/docker-entrypoint.d/40-render-llm.sh:ro
-    ports:
-      # BIND_ADDR=0.0.0.0 publishes the gateway to the network so developers on
-      # other machines can point LLM_BASE_URL here. Default stays loopback-only.
-      - "${BIND_ADDR:-127.0.0.1}:${LLM_GATEWAY_PORT:-8602}:80"
-    networks: [agents]
-
-  # One service for any number of local GPUs. Scaling is vLLM's job, not
-  # compose's: TENSOR_PARALLEL splits one model across cards, DATA_PARALLEL runs
-  # that many copies inside the one server and load-balances between them, and
-  # CUDA_VISIBLE_DEVICES says which cards it may touch. Four GPUs as two
-  # tensor-parallel pairs is VLLM_GPUS=0,1,2,3 TENSOR_PARALLEL=2 DATA_PARALLEL=2
-  # — no extra container, no extra profile.
-
   # One service for any number of local GPUs. Scaling is vLLM's job, not
   # compose's: TENSOR_PARALLEL splits one model across cards, DATA_PARALLEL runs
   # that many copies inside the one server and load-balances between them, and
@@ -121,6 +98,11 @@ services:
   # 3 cards as a tensor-parallel pair plus a single, say. Same image and the same
   # command, inherited from the anchor; only the environment differs, and all of
   # it is in .env. Turn on with COMPOSE_PROFILES=gpu,vllm2.
+
+  # An asymmetric second instance, for a card count that does not divide evenly —
+  # 3 cards as a tensor-parallel pair plus a single, say. Same image and the same
+  # command, inherited from the anchor; only the environment differs, and all of
+  # it is in .env. Turn on with COMPOSE_PROFILES=gpu,vllm2.
   vllm-2:
     <<: [*vllm, *gpu]
     profiles: ["vllm2"]
@@ -138,33 +120,3 @@ services:
       VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS:-}
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${VLLM_2_PORT:-8611}:8000"
-
-  infer:
-    profiles: ["gpu"]
-    <<: *gpu
-    build:
-      context: ..
-      dockerfile: docker/base.Dockerfile
-      target: infer
-    image: agents/infer:dev
-    restart: unless-stopped
-    environment:
-      CUDA_VISIBLE_DEVICES: ${INFER_GPUS:-1}
-      HF_HOME: /models
-      EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-m3}
-      RERANK_MODEL: ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
-      ASR_MODEL: ${ASR_MODEL:-large-v3}
-      ASR_COMPUTE_TYPE: ${ASR_COMPUTE_TYPE:-int8_float16}
-      ASR_LANGUAGE: ${ASR_LANGUAGE:-ko}
-    volumes:
-      - ${INFER_MODEL_DIR:-./data/models/infer}:/models
-      - ${DATA_ROOT:-./data}/storage:/storage
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:${INFER_PORT:-8603}:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=5).status==200 else 1)\""]
-      interval: 15s
-      timeout: 10s
-      retries: 40
-      start_period: 600s
-    networks: [agents]

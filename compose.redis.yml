@@ -1,0 +1,27 @@
+# ---------------------------------------------------------------------------
+#  redis — the ingest queue.
+#
+#  Included by compose.yaml — never used directly. What starts is decided by
+#  COMPOSE_PROFILES in .env at the repo root.
+#
+#  Profile: dev.
+# ---------------------------------------------------------------------------
+services:
+  redis:
+    profiles: ["dev"]
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
+    volumes:
+      - ${DATA_ROOT:-./data}/redis:/data
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [agents]
+
+  # Opt-in: only needed to debug ingest (LibreOffice / OCR / ffmpeg are why this
+  # image is large, and why it isn't started by default).

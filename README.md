@@ -299,7 +299,7 @@ affects, and none of those are meant to be edited per machine:
 
 | Where the default lives | What it covers |
 |---|---|
-| `docker/compose/*.yml` — `${VAR:-default}` | paths, ports, GPU indices, model ids, vLLM flags |
+| `compose.*.yml` — `${VAR:-default}` | paths, ports, GPU indices, model ids, vLLM flags |
 | `apps/api/app/config.py` — the `Settings` class | OCR, chunking, retrieval, agent and topic tuning, each beside the measurement that chose it |
 | `package.json` — the `scripts` block | every command; `pnpm run` prints it |
 | `apps/ruff.toml`, `apps/api/alembic.ini`, `docker/requirements/*.txt` | tool and dependency config, which lives next to what it configures |
@@ -331,10 +331,10 @@ Guided JSON remains the fallback for a model with no usable tool-call parser.
 ## Layout
 
 ```
-compose.yaml   includes the three below; COMPOSE_PROFILES in .env picks what runs
-  docker/compose/gpu.yml       llm-gateway, vllm, vllm-2, infer
-  docker/compose/dev.yml       postgres, redis
-  docker/compose/ingest.yml    worker
+compose.yaml       includes the six below; COMPOSE_PROFILES in .env picks what runs
+compose.gateway.yml   llm-gateway        compose.postgres.yml  postgres
+compose.vllm.yml      vllm, vllm-2       compose.redis.yml     redis
+compose.infer.yml     infer              compose.worker.yml    worker
 package.json   every task — pnpm run
 apps/
   api/    FastAPI + agent + ingest pipeline   (app/agent/citations.py is the core protocol)

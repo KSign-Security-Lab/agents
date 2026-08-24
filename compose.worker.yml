@@ -1,9 +1,10 @@
 # ---------------------------------------------------------------------------
-#  The ingest worker. Big image (LibreOffice, OCR, ffmpeg), so opt-in.
-#  Profile: ingest.
+#  worker — the ingest pipeline: convert, extract, chunk, embed, categorize.
 #
-#  Included by ../../compose.yaml — never used directly. What starts is decided
-#  by COMPOSE_PROFILES in .env at the repo root.
+#  Included by compose.yaml — never used directly. What starts is decided by
+#  COMPOSE_PROFILES in .env at the repo root.
+#
+#  Profile: ingest. Big image (LibreOffice, OCR, ffmpeg), so it is opt-in.
 # ---------------------------------------------------------------------------
 services:
   # Opt-in: only needed to debug ingest (LibreOffice / OCR / ffmpeg are why this

@@ -27,20 +27,19 @@
 # ---------------------------------------------------------------------------
 name: agents
 
-# One file per role, so this stays readable as services are added. `include`
-# merges them before anything else happens, so `docker compose up -d`,
-# `config --profiles` and profile selection all behave exactly as if this were
-# still one file.
-# project_directory pins relative paths to the repo root. Without it, a build
-# context of "." or a volume of "./data" would resolve against docker/compose/,
-# which fails quietly — the container just gets the wrong directory.
+# One file per service, so each is short and named for what it starts. They sit
+# beside this file rather than in a subdirectory for a concrete reason: relative
+# paths inside an included file resolve against THAT file's directory, so a build
+# context of "." or a volume of "./data" only means the repo root while the file
+# is at the repo root. From a subdirectory they silently pointed elsewhere —
+# containers started, mounts were wrong.
 include:
-  - path: docker/compose/gpu.yml
-    project_directory: .
-  - path: docker/compose/dev.yml
-    project_directory: .
-  - path: docker/compose/ingest.yml
-    project_directory: .
+  - compose.gateway.yml
+  - compose.vllm.yml
+  - compose.infer.yml
+  - compose.postgres.yml
+  - compose.redis.yml
+  - compose.worker.yml
 
 networks:
   agents:
