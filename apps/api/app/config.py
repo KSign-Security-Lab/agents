@@ -63,7 +63,9 @@ class Settings(BaseSettings):
 
     # ---- inference sidecar ----------------------------------------------
     infer_base_url: str = ""
-    embed_dim: int = 1024
+    # No embed_dim: the vector column's width is fixed by the migration that
+    # created it (Vector(1024)), so a setting here would be read by nothing and
+    # would imply a model swap is a config change. It is a migration.
     sparse_dim: int = 250002
 
     # ---- ingest ----------------------------------------------------------
@@ -76,7 +78,6 @@ class Settings(BaseSettings):
     ocr_dpi: int = 200
     ocr_min_confidence: float = 0.25
     ocr_use_gpu: bool = False
-    enable_keyframe_ocr: bool = False
     chunk_target_tokens: int = 512
     chunk_overlap_tokens: int = 64
     transcript_window_s: int = 45
@@ -95,9 +96,6 @@ class Settings(BaseSettings):
     retrieve_top_k: int = 40
     rerank_top_k: int = 10
     sentence_align_threshold: float = 0.55
-    web_search_enabled: bool = False
-    web_search_provider: Literal["none", "tavily", "brave", "searxng"] = "none"
-    web_search_api_key: str = ""
 
     # ---- auth ------------------------------------------------------------
     internal_jwt_secret: str = "dev-secret"

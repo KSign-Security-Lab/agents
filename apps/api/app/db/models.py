@@ -239,6 +239,8 @@ class Chunk(Base):
         ForeignKey("document_elements.id", ondelete="SET NULL")
     )
 
+    # 1024 is bge-m3's dimension, and it is fixed here and in the migration —
+    # swapping to a model with a different width is a migration, not a setting.
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
     sparse: Mapped[dict | None] = mapped_column(SPARSEVEC(250002))
 

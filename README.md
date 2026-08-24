@@ -235,7 +235,8 @@ apps/
   web/    Next.js UI
 docker/   base.Dockerfile, requirements
 scripts/  make_samples.py, run inside the worker image
-docs/     STATUS.md — what works, what remains; dev-topology.html — the two-machine dev split
+docs/     PLAN.md — the design decisions; STATUS.md — what works;
+          dev-topology.html — the deployment, drawn
 ```
 
 `apps/*` is a pnpm workspace (`pnpm-workspace.yaml`, root `package.json`,

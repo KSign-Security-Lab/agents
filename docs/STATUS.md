@@ -176,7 +176,7 @@ Recorded because each was invisible until a specific test forced it out.
 
 ## Suggested order on a new machine
 
-1. `docker compose up -d` and `pnpm dev`, then confirm `pnpm test` passes and `/ready` reports all
+1. `./setup` on a GPU machine and `./setup dev` on a laptop, then confirm `pnpm test` passes and `/ready` reports all
    three dependencies healthy.
 2. `pnpm samples && pnpm ingest samples/...`, then `pnpm bboxes` and
    **look at the PNGs**. If highlights are off, nothing downstream matters.
