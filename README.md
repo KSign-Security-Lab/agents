@@ -73,24 +73,32 @@ docker compose config --services     # what your .env starts right now
 | Profile | Starts | Add it when |
 |---|---|---|
 | `dev` | postgres, redis | you're developing — this is the default in `.env.example` |
-| `gpu` | llm-gateway, vllm-a, infer | the machine has CUDA and serves the models |
+| `gpu` | llm-gateway, vllm, infer | the machine has CUDA and serves the models |
 | `ingest` | worker | you're debugging ingest (big image: LibreOffice, OCR, ffmpeg) |
-| `replica2` | a second vllm | you have a spare GPU and want the load split — check `VLLM_B_GPUS` against `INFER_GPUS`, which default to the same card |
 
 Combine with commas — `dev,ingest`, or `gpu,dev` for both roles on one box. You
 can also skip `.env` entirely and name services, which activates their profile on
 the spot: `docker compose up -d postgres redis`.
 
-**Tensor parallel is not a profile.** To split one model across two cards, give
-`vllm` both and tell it to split them:
+**Scaling is not a profile.** Profiles say what runs on *this* machine; they were
+never going to describe four GPUs, let alone a GPU on another host. Two separate
+axes handle that, and neither adds a service:
 
 ```bash
-VLLM_A_GPUS=0,1
-TENSOR_PARALLEL=2
+# more cards on THIS machine — vLLM does it inside the one server
+VLLM_GPUS=0,1,2,3   TENSOR_PARALLEL=2   DATA_PARALLEL=2
+
+# cards on OTHER machines — the gateway pools a list of addresses
+LLM_UPSTREAMS=vllm:8000,gpu-b:8601,gpu-c:8601
 ```
 
+`TENSOR_PARALLEL` splits one model across N cards; `DATA_PARALLEL` runs N copies
+and load-balances between them. They multiply, and the product should equal the
+number of cards you listed. `LLM_UPSTREAMS` entries can be sibling containers or
+remote hosts — the gateway doesn't care, so adding a machine is one more entry.
+
 Everything else is normal compose — `docker compose down`, `ps`,
-`logs -f vllm-a`, `exec postgres psql -U agents`, `restart infer`.
+`logs -f vllm`, `exec postgres psql -U agents`, `restart infer`.
 
 ```
   gpu profile                           dev profile
@@ -113,29 +121,43 @@ default 32B AWQ model, and ~35GB of disk for weights.
 
 ```bash
 docker compose up -d
-docker compose logs -f vllm-a
+docker compose logs -f vllm
 ```
 
 Weights download on first start — ~30GB before the GPU is touched at all, which
 is why `nvidia-smi` stays empty for a while. There is nothing to pre-fetch with —
-`docker compose logs -f vllm-a` is how you watch it.
+`docker compose logs -f vllm` is how you watch it.
 
 #### "I set GPU 1, but it says GPU 0"
 
-That's `CUDA_VISIBLE_DEVICES` doing its job. Setting `VLLM_A_GPUS=1` exposes
+That's `CUDA_VISIBLE_DEVICES` doing its job. Setting `VLLM_GPUS=1` exposes
 *only* physical GPU 1 to the process, and CUDA renumbers it to index `0`. So
 vLLM, torch and `nvidia-smi` **inside** the container all say `0` whichever
 physical card it is — the logs cannot tell you which GPU you got.
 
 ```bash
 nvidia-smi                                             # host: which card holds the memory
-docker compose exec vllm-a printenv CUDA_VISIBLE_DEVICES
+docker compose exec vllm printenv CUDA_VISIBLE_DEVICES
 ```
 
 If that disagrees with `.env`, the container predates your edit — `docker
 restart` never re-reads compose config, only `up -d` recreates. Note also that
-`INFER_GPUS` defaults to `1` while `VLLM_A_GPUS` defaults to `0`, so the two land
+`INFER_GPUS` defaults to `1` while `VLLM_GPUS` defaults to `0`, so the two land
 on different cards unless you set both.
+
+#### More than one GPU machine
+
+Each box runs the same thing — `COMPOSE_PROFILES=gpu` with `BIND_ADDR=0.0.0.0`
+so its `vllm` is reachable on `VLLM_PORT` (8601). Then on whichever box
+developers point at, list them all:
+
+```bash
+LLM_UPSTREAMS=vllm:8000,gpu-b:8601,gpu-c:8601
+```
+
+That box's gateway becomes a `least_conn` pool over the lot. Nothing else
+changes: the application still only knows `LLM_BASE_URL`, and adding a fourth
+machine is one more entry in the list.
 
 ### On a developer's machine
 

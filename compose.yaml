@@ -2,7 +2,7 @@
 #  Everything runs from here with plain docker compose:
 #
 #      docker compose up -d          docker compose ps
-#      docker compose down           docker compose logs -f vllm-a
+#      docker compose down           docker compose logs -f vllm
 #
 #  No -f, no --profile flags. What this machine runs is one line in .env:
 #
@@ -14,14 +14,17 @@
 #  api and web are NOT here on purpose: they run on the host with hot reload,
 #  started by `pnpm dev`, because that is the point of developing them.
 #
-#  gpu        llm-gateway + vllm-a + infer      needs CUDA
+#  gpu        llm-gateway + vllm + infer        needs CUDA
 #  dev        postgres + redis                   no GPU, runs anywhere
 #  ingest     worker                             big image; only to debug ingest
-#  replica2   a second vllm, load split by nginx least_conn
 #
 #  `docker compose config --profiles` lists these; --services lists what the
-#  current .env actually starts. Tensor parallel is not a profile: give vllm-a
-#  two cards and tell it to split them (VLLM_A_GPUS=0,1 TENSOR_PARALLEL=2).
+#  current .env actually starts.
+#
+#  Scaling is NOT expressed as profiles, because that does not extend past two.
+#  More GPUs on this machine: TENSOR_PARALLEL / DATA_PARALLEL on the one vllm
+#  service. GPUs on other machines: list them in LLM_UPSTREAMS and the gateway
+#  pools them. Either way the application still only knows LLM_BASE_URL.
 # ---------------------------------------------------------------------------
 name: agents
 
@@ -62,9 +65,10 @@ services:
     image: nginx:alpine
     restart: unless-stopped
     environment:
-      # The gateway derives its topology from the active profiles, so there is
-      # no second LLM_MODE knob to keep in step with COMPOSE_PROFILES.
-      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+      # Comma-separated host:port list. One entry is the normal case; more than
+      # one makes this a least_conn pool, and the entries do not have to be on
+      # this machine — LLM_UPSTREAMS=gpu-a:8601,gpu-b:8601 pools two servers.
+      LLM_UPSTREAMS: ${LLM_UPSTREAMS:-vllm:8000}
     volumes:
       - ./docker/nginx/llm-gateway.conf.tmpl:/etc/nginx/templates/llm.conf.tmpl:ro
       - ./docker/nginx/entrypoint.sh:/docker-entrypoint.d/40-render-llm.sh:ro
@@ -74,12 +78,19 @@ services:
       - "${BIND_ADDR:-127.0.0.1}:${LLM_GATEWAY_PORT:-8602}:80"
     networks: [agents]
 
-  vllm-a:
+  # One service for any number of local GPUs. Scaling is vLLM's job, not
+  # compose's: TENSOR_PARALLEL splits one model across cards, DATA_PARALLEL runs
+  # that many copies inside the one server and load-balances between them, and
+  # CUDA_VISIBLE_DEVICES says which cards it may touch. Four GPUs as two
+  # tensor-parallel pairs is VLLM_GPUS=0,1,2,3 TENSOR_PARALLEL=2 DATA_PARALLEL=2
+  # — no extra container, no extra profile.
+  vllm:
     <<: [*vllm, *gpu]
     profiles: ["gpu"]
-    environment: &vllm_env_a
-      CUDA_VISIBLE_DEVICES: ${VLLM_A_GPUS:-0}
+    environment:
+      CUDA_VISIBLE_DEVICES: ${VLLM_GPUS:-0}
       TENSOR_PARALLEL: ${TENSOR_PARALLEL:-1}
+      DATA_PARALLEL: ${DATA_PARALLEL:-1}
       HF_HOME: /root/.cache/huggingface
       MODEL_ID: ${MODEL_ID:-LGAI-EXAONE/EXAONE-4.0-32B-AWQ}
       SERVED_MODEL_NAME: ${SERVED_MODEL_NAME:-main}
@@ -88,34 +99,23 @@ services:
       TOOL_CALL_PARSER: ${TOOL_CALL_PARSER:-hermes}
       REASONING_PARSER: ${REASONING_PARSER:-}
       VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS:-}
+    ports:
+      # Published so a gateway on ANOTHER machine can pool this one. Still
+      # loopback-only unless BIND_ADDR says otherwise.
+      - "${BIND_ADDR:-127.0.0.1}:${VLLM_PORT:-8601}:8000"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        # Only pass --data-parallel-size when it is actually >1, so the default
+        # command line stays exactly what it was before this flag existed.
+        DP=""
+        [ "$$DATA_PARALLEL" -gt 1 ] && DP="--data-parallel-size $$DATA_PARALLEL"
         exec vllm serve "$$MODEL_ID" \
           --served-model-name "$$SERVED_MODEL_NAME" \
           --max-model-len "$$MAX_MODEL_LEN" \
           --gpu-memory-utilization "$$GPU_MEMORY_UTILIZATION" \
           --tensor-parallel-size "$$TENSOR_PARALLEL" \
-          --host 0.0.0.0 --port 8000 \
-          --structured-outputs-config '{"disable_any_whitespace":true,"backend":"xgrammar"}' \
-          $${TOOL_CALL_PARSER:+--tool-call-parser "$$TOOL_CALL_PARSER" --enable-auto-tool-choice} \
-          $${REASONING_PARSER:+--reasoning-parser "$$REASONING_PARSER"} \
-          $$VLLM_EXTRA_ARGS
-
-  vllm-b:
-    <<: [*vllm, *gpu]
-    profiles: ["replica2"]
-    environment:
-      <<: *vllm_env_a
-      CUDA_VISIBLE_DEVICES: ${VLLM_B_GPUS:-1}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        exec vllm serve "$$MODEL_ID" \
-          --served-model-name "$$SERVED_MODEL_NAME" \
-          --max-model-len "$$MAX_MODEL_LEN" \
-          --gpu-memory-utilization "$$GPU_MEMORY_UTILIZATION" \
-          --tensor-parallel-size "$$TENSOR_PARALLEL" \
+          $$DP \
           --host 0.0.0.0 --port 8000 \
           --structured-outputs-config '{"disable_any_whitespace":true,"backend":"xgrammar"}' \
           $${TOOL_CALL_PARSER:+--tool-call-parser "$$TOOL_CALL_PARSER" --enable-auto-tool-choice} \

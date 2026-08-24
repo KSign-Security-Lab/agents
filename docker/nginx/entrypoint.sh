@@ -1,42 +1,54 @@
 #!/bin/sh
-# Render the vLLM upstream from the active compose profiles. Runs from nginx's
+# Render the vLLM upstream from LLM_UPSTREAMS. Runs from nginx's
 # /docker-entrypoint.d/ before the server starts.
 #
-# One backend uses a variable proxy_pass: nginx then resolves the name per
-#   request and starts even while the replica is still loading its weights,
-#   instead of dying with "host not found in upstream".
-# Two needs real load balancing, which requires a static upstream block; both
-#   replicas are created together by the profile, so the names resolve.
+# LLM_UPSTREAMS is a comma-separated host:port list, and nothing here cares
+# whether those hosts are sibling containers or other machines:
+#   vllm:8000                    the local container (default)
+#   gpu-a:8601,gpu-b:8601        two GPU servers, pooled
+#
+# One entry uses a variable proxy_pass so nginx resolves the name per request
+#   and starts even while the model is still loading, instead of dying with
+#   "host not found in upstream" — a 30GB download takes a while.
+# Two or more needs real load balancing, which requires a static upstream block.
+#   Those names must resolve at start-up, which they do: sibling containers are
+#   created together, and remote hosts are ordinary DNS.
+#
+# Substitution is `sed r`, not awk -v: the blocks are multi-line, and awk -v
+# rejects embedded newlines on some awks (BSD), which made this untestable
+# outside the container.
 set -eu
 
-# Derived from the active compose profiles rather than a second LLM_MODE knob:
-# one place to say what this machine serves, nothing to keep in step.
-case ",${COMPOSE_PROFILES:-}," in
-  *,replica2,*) MODE=replica2 ;;
-  *)            MODE=single ;;
-esac
+TMP="${TMPDIR:-/tmp}"
+CONF_DIR="${CONF_DIR:-/etc/nginx/conf.d}"
+TMPL="${TMPL:-/etc/nginx/templates/llm.conf.tmpl}"
 
-case "$MODE" in
-  single)
-    UPSTREAM_BLOCK="# single backend: resolved per request via the resolver directive"
-    PROXY_TARGET="        set \$vllm_backend \"vllm-a:8000\";
-        proxy_pass http://\$vllm_backend;"
-    ;;
-  replica2)
-    UPSTREAM_BLOCK="upstream vllm_pool {
-    least_conn;
-    server vllm-a:8000 max_fails=3 fail_timeout=30s;
-    server vllm-b:8000 max_fails=3 fail_timeout=30s;
-    keepalive 32;
-}"
-    PROXY_TARGET="        proxy_pass http://vllm_pool;"
-    ;;
-esac
+# Tolerate spaces after commas, and ignore empty entries.
+UPSTREAMS=$(printf '%s' "${LLM_UPSTREAMS:-vllm:8000}" | tr -d '[:space:]')
+COUNT=$(printf '%s' "$UPSTREAMS" | tr ',' '\n' | grep -c . || true)
+[ "$COUNT" -ge 1 ] || { echo "llm-gateway: LLM_UPSTREAMS is empty" >&2; exit 1; }
 
-awk -v ub="$UPSTREAM_BLOCK" -v pt="$PROXY_TARGET" -v mode="$MODE" '
-  /#UPSTREAM_BLOCK#/ { print ub; next }
-  /#PROXY_TARGET#/   { print pt; next }
-  { gsub(/#MODE#/, mode); print }
-' /etc/nginx/templates/llm.conf.tmpl > /etc/nginx/conf.d/default.conf
+if [ "$COUNT" -eq 1 ]; then
+  MODE="1 backend"
+  printf '%s\n' "# single backend: resolved per request via the resolver directive" > "$TMP/up.part"
+  printf '        set $vllm_backend "%s";\n        proxy_pass http://$vllm_backend;\n' \
+    "$UPSTREAMS" > "$TMP/pt.part"
+else
+  MODE="$COUNT backends"
+  {
+    echo "upstream vllm_pool {"
+    echo "    least_conn;"
+    printf '%s' "$UPSTREAMS" | tr ',' '\n' | grep . | \
+      sed 's/^/    server /; s/$/ max_fails=3 fail_timeout=30s;/'
+    echo "    keepalive 32;"
+    echo "}"
+  } > "$TMP/up.part"
+  printf '        proxy_pass http://vllm_pool;\n' > "$TMP/pt.part"
+fi
 
-echo "llm-gateway: LLM_MODE=$MODE"
+sed -e "/#UPSTREAM_BLOCK#/r $TMP/up.part" -e "/#UPSTREAM_BLOCK#/d" \
+    -e "/#PROXY_TARGET#/r $TMP/pt.part"   -e "/#PROXY_TARGET#/d" \
+    -e "s/#MODE#/$MODE/" "$TMPL" > "$CONF_DIR/default.conf"
+rm -f "$TMP/up.part" "$TMP/pt.part"
+
+echo "llm-gateway: $MODE -> $UPSTREAMS"

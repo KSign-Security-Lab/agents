@@ -387,8 +387,8 @@
 
     <figure>
       <div class="scroller" tabindex="0">
-        <svg viewBox="0 0 1000 510" role="img"
-             aria-label="compose.yaml contains seven services split into four profiles with no overlap. The dev profile holds postgres and redis. The ingest profile holds the worker, which depends on postgres and redis, so ingest cannot be used without dev. The gpu profile holds llm-gateway, vllm-a and infer. The replica2 profile holds vllm-b, which the gateway pools together with vllm-a. No dependency runs between the dev side and the gpu side.">
+        <svg viewBox="0 0 1000 470" role="img"
+             aria-label="compose.yaml contains six services split into three profiles with no overlap. The dev profile holds postgres and redis. The ingest profile holds the worker, which depends on postgres and redis, so ingest cannot be used without dev. The gpu profile holds llm-gateway, vllm and infer. Scaling is not a profile: TENSOR_PARALLEL and DATA_PARALLEL scale the single vllm service across local GPUs, and LLM_UPSTREAMS lists remote GPU servers for the gateway to pool.">
           <defs>
             <marker id="pa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <polygon class="head" points="0,1 10,5 0,9"></polygon>
@@ -429,42 +429,38 @@
           <text class="svg-title" x="624" y="123">llm-gateway</text>
           <text class="svg-sub" x="624" y="141">:8602 · nginx</text>
           <rect class="node" x="608" y="176" width="300" height="54" rx="6"></rect>
-          <text class="svg-title" x="624" y="200">vllm-a</text>
-          <text class="svg-sub" x="624" y="219">the model</text>
+          <text class="svg-title" x="624" y="200">vllm</text>
+          <text class="svg-sub" x="624" y="219">:8601 · one service, any card count</text>
           <rect class="node" x="608" y="252" width="300" height="54" rx="6"></rect>
           <text class="svg-title" x="624" y="276">infer</text>
           <text class="svg-sub" x="624" y="295">:8603 · embed · rerank · ASR</text>
 
           <line class="flow-hot" x1="758" y1="152" x2="758" y2="174" marker-end="url(#pa-hot)"></line>
-          <text class="svg-edge-hot" x="768" y="169">proxy_pass</text>
+          <text class="svg-edge-hot" x="768" y="169">LLM_UPSTREAMS</text>
 
-          <!-- ============================ replica2 ============================ -->
-          <text class="svg-eyebrow e-gpu" x="582" y="362">replica2 — AN ADD-ON</text>
-          <rect class="panel panel-gpu" x="580" y="374" width="380" height="112" rx="10"></rect>
-          <rect class="node" x="608" y="404" width="300" height="56" rx="6"></rect>
-          <text class="svg-title" x="624" y="428">vllm-b</text>
-          <text class="svg-sub" x="624" y="447">a second card</text>
-
-          <polyline class="flow-hot" points="908,126 934,126 934,432 910,432"
-                    marker-end="url(#pa-hot)"></polyline>
-          <text class="svg-edge-hot" x="926" y="352" text-anchor="end">pooled with vllm-a</text>
+          <!-- ===================== scaling is not a profile ==================== -->
+          <text class="svg-eyebrow e-gpu" x="582" y="362">SCALING — NOT A PROFILE</text>
+          <rect class="panel panel-gpu" x="580" y="374" width="380" height="76" rx="10"></rect>
+          <text class="svg-sub" x="600" y="400">TENSOR_PARALLEL · DATA_PARALLEL</text>
+          <text class="svg-sub" x="600" y="416">→ more cards, same one vllm service</text>
+          <text class="svg-sub" x="600" y="436">LLM_UPSTREAMS → more machines, pooled</text>
 
           <!-- ============================== thesis ============================ -->
-          <text class="svg-title" x="500" y="196" text-anchor="middle">7 services</text>
-          <text class="svg-title" x="500" y="218" text-anchor="middle">4 profiles</text>
-          <text class="svg-sub" x="500" y="250" text-anchor="middle">every service sits</text>
-          <text class="svg-sub" x="500" y="266" text-anchor="middle">in exactly one</text>
-          <text class="svg-sub" x="500" y="282" text-anchor="middle">— no overlap</text>
+          <text class="svg-title" x="500" y="186" text-anchor="middle">6 services</text>
+          <text class="svg-title" x="500" y="208" text-anchor="middle">3 profiles</text>
+          <text class="svg-sub" x="500" y="240" text-anchor="middle">every service sits</text>
+          <text class="svg-sub" x="500" y="256" text-anchor="middle">in exactly one</text>
+          <text class="svg-sub" x="500" y="272" text-anchor="middle">— no overlap</text>
         </svg>
       </div>
-      <figcaption>The profiles <strong>partition</strong> the file: seven services, four groups, no
-      service in two groups and none in zero. So a comma-separated list is just a union — picking
+      <figcaption>The profiles <strong>partition</strong> the file: six services, three groups, no
+      service in two and none in zero. So a comma-separated list is just a union — picking
       <span class="inline">gpu,dev</span> starts five containers because those are the five in those
-      two groups. Solid border = a role you can start on its own; dashed = an add-on. The add-ons are
-      dashed for a concrete reason: <span class="inline">worker</span>'s two
-      <span class="inline">depends_on</span> arrows leave its own group, and nothing at all runs
-      between the dev side and the gpu side — in compose they never touch, because the only thing
-      joining them is <span class="inline">api</span>, which runs on your host.</figcaption>
+      two groups. Solid border = a role you can start on its own; dashed = optional. And profiles
+      answer only "what runs here" — they are deliberately <em>not</em> how you scale, because a
+      service per replica stops working at two and can't describe a GPU on another host at all.
+      Nothing runs between the dev side and the gpu side either: in compose they never touch,
+      because the only thing joining them is <span class="inline">api</span>, on your host.</figcaption>
     </figure>
 
     <div class="tbl" style="margin-top: 28px">
@@ -473,8 +469,7 @@
         <tbody>
           <tr><td><code>dev</code></td><td>postgres, redis</td><td>a laptop</td></tr>
           <tr><td><code>dev,ingest</code></td><td>postgres, redis, worker</td><td>…also debugging ingest</td></tr>
-          <tr><td><code>gpu</code></td><td>llm-gateway, vllm-a, infer</td><td>the GPU server</td></tr>
-          <tr><td><code>gpu,replica2</code></td><td>…plus vllm-b</td><td>…with a second card</td></tr>
+          <tr><td><code>gpu</code></td><td>llm-gateway, vllm, infer</td><td>a GPU server — any number of cards</td></tr>
           <tr><td><code>gpu,dev</code></td><td>all five</td><td>one box doing both</td></tr>
           <tr>
             <td><code>ingest</code></td>
@@ -511,14 +506,16 @@
                 <td><span class="svc svc-gpu">llm-gateway</span></td>
                 <td class="where">nginx · :8602</td>
                 <td>The one URL the application knows. Whether there's one replica behind it or
-                two is deployment config: adding the <code>replica2</code> profile puts a second
-                replica behind it without the application noticing.</td>
+                three, here or on other machines, is <code>LLM_UPSTREAMS</code> — a list of
+                addresses it pools with <code>least_conn</code>. The application never learns.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-gpu">vllm</span></td>
-                <td class="where">container · :8000 internal</td>
-                <td>Serves <code>EXAONE-4.0-32B-AWQ</code>. Writes the answers and emits the tool
-                calls the agent's query planning depends on.</td>
+                <td class="where">container · :8601</td>
+                <td>Serves <code>EXAONE-4.0-32B-AWQ</code>. <strong>One service whatever the card
+                count</strong>: <code>TENSOR_PARALLEL</code> splits a model across cards,
+                <code>DATA_PARALLEL</code> runs that many copies inside it. Published on 8601 so a
+                gateway on another machine can pool it.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-gpu">infer</span></td>
@@ -595,12 +592,12 @@
           <p class="step">First time</p>
 <pre>cp .env.example .env
 $EDITOR .env    <span class="c"># COMPOSE_PROFILES=gpu</span>
-                <span class="c"># VLLM_A_GPUS, BIND_ADDR</span></pre>
+                <span class="c"># VLLM_GPUS, BIND_ADDR</span></pre>
         </div>
         <div>
           <p class="step">Serve it</p>
 <pre>docker compose up -d
-docker compose logs -f vllm-a
+docker compose logs -f vllm
 docker compose config --profiles  <span class="c"># what else exists</span></pre>
         </div>
         <p class="who">No Postgres, no Redis, no web, no worker on this box — the <span class="inline">gpu</span> profile
