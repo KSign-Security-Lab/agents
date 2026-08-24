@@ -383,6 +383,117 @@
 
   <!-- ================================ commands ================================ -->
   <section>
+    <h2 class="section">What each profile covers</h2>
+
+    <figure>
+      <div class="scroller" tabindex="0">
+        <svg viewBox="0 0 1000 510" role="img"
+             aria-label="compose.yaml contains seven services split into four profiles with no overlap. The dev profile holds postgres and redis. The ingest profile holds the worker, which depends on postgres and redis, so ingest cannot be used without dev. The gpu profile holds llm-gateway, vllm-a and infer. The replica2 profile holds vllm-b, which the gateway pools together with vllm-a. No dependency runs between the dev side and the gpu side.">
+          <defs>
+            <marker id="pa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon class="head" points="0,1 10,5 0,9"></polygon>
+            </marker>
+            <marker id="pa-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon class="head-hot" points="0,1 10,5 0,9"></polygon>
+            </marker>
+          </defs>
+
+          <!-- ============================== dev ============================== -->
+          <text class="svg-eyebrow e-loc" x="42" y="52">dev — A ROLE, RUNS ALONE</text>
+          <rect class="panel panel-loc" x="40" y="64" width="380" height="124" rx="10"
+                stroke-dasharray="0"></rect>
+          <rect class="node" x="68" y="100" width="160" height="56" rx="6"></rect>
+          <text class="svg-title" x="84" y="124">postgres</text>
+          <text class="svg-sub" x="84" y="143">:5433 · pgvector</text>
+          <rect class="node" x="252" y="100" width="140" height="56" rx="6"></rect>
+          <text class="svg-title" x="268" y="124">redis</text>
+          <text class="svg-sub" x="268" y="143">:6380</text>
+
+          <!-- ============================= ingest ============================= -->
+          <text class="svg-eyebrow e-loc" x="42" y="266">ingest — AN ADD-ON</text>
+          <rect class="panel panel-loc" x="40" y="278" width="380" height="122" rx="10"></rect>
+          <rect class="node" x="68" y="312" width="324" height="58" rx="6"></rect>
+          <text class="svg-title" x="84" y="336">worker</text>
+          <text class="svg-sub" x="84" y="355">LibreOffice · OCR · ffmpeg</text>
+
+          <line class="flow" x1="148" y1="310" x2="148" y2="160" marker-end="url(#pa)"></line>
+          <line class="flow" x1="322" y1="310" x2="322" y2="160" marker-end="url(#pa)"></line>
+          <text class="svg-edge" x="158" y="238">depends_on</text>
+          <text class="svg-edge" x="158" y="254">— so it needs dev</text>
+
+          <!-- ============================== gpu =============================== -->
+          <text class="svg-eyebrow e-gpu" x="582" y="52">gpu — A ROLE, RUNS ALONE</text>
+          <rect class="panel panel-gpu" x="580" y="64" width="380" height="260" rx="10"
+                stroke-dasharray="0"></rect>
+          <rect class="node" x="608" y="100" width="300" height="52" rx="6"></rect>
+          <text class="svg-title" x="624" y="123">llm-gateway</text>
+          <text class="svg-sub" x="624" y="141">:8602 · nginx</text>
+          <rect class="node" x="608" y="176" width="300" height="54" rx="6"></rect>
+          <text class="svg-title" x="624" y="200">vllm-a</text>
+          <text class="svg-sub" x="624" y="219">the model</text>
+          <rect class="node" x="608" y="252" width="300" height="54" rx="6"></rect>
+          <text class="svg-title" x="624" y="276">infer</text>
+          <text class="svg-sub" x="624" y="295">:8603 · embed · rerank · ASR</text>
+
+          <line class="flow-hot" x1="758" y1="152" x2="758" y2="174" marker-end="url(#pa-hot)"></line>
+          <text class="svg-edge-hot" x="768" y="169">proxy_pass</text>
+
+          <!-- ============================ replica2 ============================ -->
+          <text class="svg-eyebrow e-gpu" x="582" y="362">replica2 — AN ADD-ON</text>
+          <rect class="panel panel-gpu" x="580" y="374" width="380" height="112" rx="10"></rect>
+          <rect class="node" x="608" y="404" width="300" height="56" rx="6"></rect>
+          <text class="svg-title" x="624" y="428">vllm-b</text>
+          <text class="svg-sub" x="624" y="447">a second card</text>
+
+          <polyline class="flow-hot" points="908,126 934,126 934,432 910,432"
+                    marker-end="url(#pa-hot)"></polyline>
+          <text class="svg-edge-hot" x="926" y="352" text-anchor="end">pooled with vllm-a</text>
+
+          <!-- ============================== thesis ============================ -->
+          <text class="svg-title" x="500" y="196" text-anchor="middle">7 services</text>
+          <text class="svg-title" x="500" y="218" text-anchor="middle">4 profiles</text>
+          <text class="svg-sub" x="500" y="250" text-anchor="middle">every service sits</text>
+          <text class="svg-sub" x="500" y="266" text-anchor="middle">in exactly one</text>
+          <text class="svg-sub" x="500" y="282" text-anchor="middle">— no overlap</text>
+        </svg>
+      </div>
+      <figcaption>The profiles <strong>partition</strong> the file: seven services, four groups, no
+      service in two groups and none in zero. So a comma-separated list is just a union — picking
+      <span class="inline">gpu,dev</span> starts five containers because those are the five in those
+      two groups. Solid border = a role you can start on its own; dashed = an add-on. The add-ons are
+      dashed for a concrete reason: <span class="inline">worker</span>'s two
+      <span class="inline">depends_on</span> arrows leave its own group, and nothing at all runs
+      between the dev side and the gpu side — in compose they never touch, because the only thing
+      joining them is <span class="inline">api</span>, which runs on your host.</figcaption>
+    </figure>
+
+    <div class="tbl" style="margin-top: 28px">
+      <table>
+        <thead><tr><th>COMPOSE_PROFILES</th><th>Containers you get</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><code>dev</code></td><td>postgres, redis</td><td>a laptop</td></tr>
+          <tr><td><code>dev,ingest</code></td><td>postgres, redis, worker</td><td>…also debugging ingest</td></tr>
+          <tr><td><code>gpu</code></td><td>llm-gateway, vllm-a, infer</td><td>the GPU server</td></tr>
+          <tr><td><code>gpu,replica2</code></td><td>…plus vllm-b</td><td>…with a second card</td></tr>
+          <tr><td><code>gpu,dev</code></td><td>all five</td><td>one box doing both</td></tr>
+          <tr>
+            <td><code>ingest</code></td>
+            <td colspan="2"><strong>Error</strong>, not an empty set:
+            <code>service "worker" depends on undefined service "postgres"</code>. The add-on's
+            dependencies live in <code>dev</code>, so it can't be used alone.</td>
+          </tr>
+          <tr>
+            <td><em>unset</em></td>
+            <td colspan="2">Nothing starts. Every service is profiled, so a bare
+            <code>docker compose up -d</code> with no <code>.env</code> is a no-op — which is why
+            there's no way to accidentally launch all seven.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
     <h2 class="section">What each piece is</h2>
     <div class="roster">
 
