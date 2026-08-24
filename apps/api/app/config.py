@@ -3,7 +3,7 @@
 Defaults describe a developer's machine: api and web run on the host, Postgres
 and Redis are the containers `docker compose up -d` starts, and the models are
 served by GPU_HOST. A container needing different values (the ingest worker
-reaching Postgres as a sibling) gets them from compose.yaml, and an explicit
+reaching Postgres as a sibling) gets them from docker/compose/, and an explicit
 environment variable always beats anything derived here.
 
 The composite URLs are built rather than configured: setting POSTGRES_PORT alone

@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------------------
+#  The ingest worker. Big image (LibreOffice, OCR, ffmpeg), so opt-in.
+#  Profile: ingest.
+#
+#  Included by ../../compose.yaml — never used directly. What starts is decided
+#  by COMPOSE_PROFILES in .env at the repo root.
+# ---------------------------------------------------------------------------
+services:
+  # Opt-in: only needed to debug ingest (LibreOffice / OCR / ffmpeg are why this
+  # image is large, and why it isn't started by default).
+  worker:
+    profiles: ["ingest"]
+    build:
+      context: .
+      dockerfile: docker/base.Dockerfile
+      target: worker
+    image: agents/worker:dev
+    restart: unless-stopped
+    environment:
+      # Inside the container the deps are siblings, not localhost.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agents}:${POSTGRES_PASSWORD:-agents}@postgres:5432/${POSTGRES_DB:-agents}
+      REDIS_URL: redis://redis:6379/0
+      INFER_BASE_URL: ${INFER_BASE_URL:-http://localhost:8603}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://localhost:8602/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-dummy}
+      SERVED_MODEL_NAME: ${SERVED_MODEL_NAME:-main}
+      TOOL_CALL_PARSER: ${TOOL_CALL_PARSER:-hermes}
+      STORAGE_ROOT: /storage
+      HF_HOME: /models
+      OCR_USE_GPU: "false"
+    volumes:
+      - ${DATA_ROOT:-./data}/storage:/storage
+      - ${DATA_ROOT:-./data}/models:/models
+      - ${DATA_ROOT:-./data}/out:/out
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [agents]
