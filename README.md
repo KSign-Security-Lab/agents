@@ -53,69 +53,86 @@ Korean-first throughout: prompts, UI, sentence segmentation, OCR, and models.
 
 ---
 
-## Two things you can run
+## Running it
+
+One `compose.yaml`, one `.env`, and plain compose commands:
+
+```bash
+cp .env.example .env
+$EDITOR .env             # set COMPOSE_PROFILES — that's what this machine runs
+docker compose up -d
+```
+
+`COMPOSE_PROFILES` is the only structural decision, and compose reads it straight
+out of `.env`, so there are no `-f` or `--profile` flags to remember:
+
+| `COMPOSE_PROFILES=` | Starts | For |
+|---|---|---|
+| `gpu,llm-single` | llm-gateway, infer, vllm-a | a GPU server, one replica |
+| `gpu,llm-tp2` | llm-gateway, infer, vllm-tp | one model split across two GPUs |
+| `gpu,llm-dp2` | llm-gateway, infer, vllm-a, vllm-b | two replicas, load split |
+| `dev` | postgres, redis | a developer's machine |
+| `dev,ingest` | ...plus worker | debugging ingest |
+| `gpu,llm-single,dev` | all of the above | both roles on one box |
+
+Everything else is normal compose — `docker compose down`, `ps`,
+`logs -f vllm-a`, `exec postgres psql -U agents`, `restart infer`.
 
 ```
-  make gpu                              make dev
-  ────────                              ────────
-  vllm    the LLM                       postgres + redis   in Docker
-  infer   embed · rerank · ASR          api + web          on the host, reloading
+  gpu profile                           dev profile
+  ───────────                           ───────────
+  vllm    the LLM                       postgres + redis   containers
+  infer   embed · rerank · ASR          api + web          host, reloading
      ▲                                     │
      └───── LLM_BASE_URL ──────────────────┘
             INFER_BASE_URL
 ```
 
-That's the whole system. `make gpu` needs CUDA; `make dev` needs nothing but
-Docker, so it runs on a Mac. They're independent — run one, the other, or both on
-the same machine. There is no third mode.
+`api` and `web` are deliberately **not** in compose: they're what you edit, so
+they run on the host under a reloader, which is what `make dev` is for.
 
-### GPU side
+### On a GPU server
 
 Needs Docker with the NVIDIA container runtime, one GPU with ≥40GB free for the
-default 32B AWQ model (two unlock `tp2`/`dp2`), and ~35GB of disk for weights.
+default 32B AWQ model, and ~35GB of disk for weights.
 
 ```bash
-make setup            # writes docker/.env
-$EDITOR docker/.env   # VLLM_A_GPUS, and BIND_ADDR=0.0.0.0 if devs connect directly
-make gpu              # or: make gpu MODE=tp2
+docker compose up -d
+docker compose logs -f vllm-a
 ```
 
 Weights download on first start — ~30GB before the GPU is touched at all, which
-is why `nvidia-smi` stays empty for a while. `make gpu-logs S=vllm-a` shows it;
-`make pull-models` fetches them ahead of time.
+is why `nvidia-smi` stays empty for a while. `make pull-models` fetches them
+ahead of time.
 
 #### "I set GPU 1, but it says GPU 0"
 
 That's `CUDA_VISIBLE_DEVICES` doing its job. Setting `VLLM_A_GPUS=1` exposes
-*only* physical GPU 1 to the process, and CUDA then renumbers it to index `0`.
-So vLLM, torch and `nvidia-smi` **inside** the container all say `0`, no matter
-which physical card it is. Logs can't tell you which GPU you got.
-
-Two places can:
+*only* physical GPU 1 to the process, and CUDA renumbers it to index `0`. So
+vLLM, torch and `nvidia-smi` **inside** the container all say `0` whichever
+physical card it is — the logs cannot tell you which GPU you got.
 
 ```bash
-nvidia-smi                                    # on the host: which card holds the memory
-docker inspect $(docker compose --env-file docker/.env \
-  -f docker/compose.gpu.yml ps -q vllm-a) \
-  -f '{{range .Config.Env}}{{println .}}{{end}}' | grep CUDA
+nvidia-smi                                             # host: which card holds the memory
+docker compose exec vllm-a printenv CUDA_VISIBLE_DEVICES
 ```
 
-If that disagrees with `docker/.env`, the container predates your edit. `docker
-restart` never re-reads compose config; only a recreate does, which is what `make
-gpu` does. Note also that `INFER_GPUS` defaults to `1` while `VLLM_A_GPUS`
-defaults to `0`, so the two land on different cards unless you set both.
+If that disagrees with `.env`, the container predates your edit — `docker
+restart` never re-reads compose config, only `up -d` recreates. Note also that
+`INFER_GPUS` defaults to `1` while `VLLM_A_GPUS` defaults to `0`, so the two land
+on different cards unless you set both.
 
-### Dev side
+### On a developer's machine
 
 ```bash
-make dev-setup            # writes docker/.env.dev
-$EDITOR docker/.env.dev   # set GPU_HOST — the only line in it
+cp .env.example .env      # ships with COMPOSE_PROFILES=dev
+$EDITOR .env              # set GPU_HOST
 make dev
 ```
 
-Starts Postgres and Redis, applies migrations, seeds the admin, then runs `api`
-and `web` with reload and prints the URLs and login. Ctrl-C stops the two host
-processes and leaves the containers up, so the next run takes seconds.
+`make dev` starts postgres and redis, applies migrations, seeds the admin, then
+runs `api` and `web` with reload and prints the URLs and login. Ctrl-C stops the
+two host processes and leaves the containers up, so the next run takes seconds.
 
 If the GPU box keeps its ports on loopback (the default — neither `vllm` nor
 `infer` authenticates), tunnel to it and leave `GPU_HOST=localhost`:
@@ -128,24 +145,21 @@ ssh -N -L 8602:localhost:8602 -L 8603:localhost:8603 <gpu-host>
 |---|---|
 | `make dev S=deps` | containers only — then run `api` from your IDE against `.venv/bin/python`, working dir `apps/` |
 | `make dev S=api` / `S=web` | one process, for two terminals |
-| `INGEST=1 make dev` | also start the `worker` container (LibreOffice/OCR/ffmpeg — big image, only needed to debug ingest) |
-| `make dev-down` / `dev-reset` | stop / stop and wipe the local database |
-| `make dev-psql`, `make dev-logs S=worker` | poke at the containers |
+| `INGEST=1 make dev` | also start the `worker` container (LibreOffice/OCR/ffmpeg — big image, only for ingest work) |
 
-[**docs/dev-topology.html**](docs/dev-topology.html) draws all of it — which
-service sits where, the two env vars that cross between them, every port.
+[**docs/dev-topology.html**](docs/dev-topology.html) draws all of it — what each
+service is, which profile starts it, and every port.
 
 ### Working on the code
 
-Everything here runs against the dev side, using the `.venv` that `make dev`
-creates:
+Against the dev containers, using the `.venv` that `make dev` creates:
 
 ```bash
 make test           # 72 unit tests
 make fmt            # ruff, config in apps/ruff.toml
 make migrate        # make revision M="add x" to generate one
 make eval           # answer + citation accuracy on the Korean gold set
-make samples        # generate Korean test documents (uses the worker container)
+make samples        # generate Korean test documents (uses the worker image)
 make ingest FILE=samples/2026_공급계약서.pdf
 make citation-check DOC=<uuid>
 ```
@@ -156,16 +170,16 @@ text. Numbers can be self-consistent and still point at the wrong line.
 
 ### Configuration is only what you decide
 
-`docker/.env` holds ten values, `docker/.env.dev` holds one. Anything absent
-falls back to a default that lives next to the code it affects:
+`.env` holds `COMPOSE_PROFILES` plus a handful of values. Anything absent falls
+back to a default that lives next to the code it affects:
 
 | Where the default lives | What it covers |
 |---|---|
-| `docker/compose.gpu.yml` — `${VAR:-default}` | paths, ports, GPU indices, model ids, vLLM flags |
+| `compose.yaml` — `${VAR:-default}` | paths, ports, GPU indices, model ids, vLLM flags |
 | `apps/api/app/config.py` — the `Settings` class | OCR, chunking, retrieval, agent and topic tuning, each beside the measurement that chose it |
 | `scripts/dev.sh` | every dev URL, derived from `GPU_HOST` |
 
-To override any `Settings` field, add it to the env file as `UPPER_CASE`.
+To override any `Settings` field, add it to `.env` as `UPPER_CASE`.
 
 ---
 
@@ -191,12 +205,13 @@ Guided JSON remains the fallback for a model with no usable tool-call parser.
 ## Layout
 
 ```
+compose.yaml   every container, selected by COMPOSE_PROFILES in .env
 apps/
   api/    FastAPI + agent + ingest pipeline   (app/agent/citations.py is the core protocol)
   infer/  GPU sidecar: embeddings, reranking, ASR
   web/    Next.js UI
-docker/   compose.gpu.yml + compose.dev.yml, base.Dockerfile, .env examples
-scripts/  dev.sh (owns the dev side), model download, sample generation
+docker/   base.Dockerfile, nginx gateway template, requirements
+scripts/  dev.sh (the host processes + code tasks), model download, samples
 docs/     STATUS.md — what works, what remains; dev-topology.html — the two-machine dev split
 ```
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Render the vLLM upstream from LLM_MODE. Runs from nginx's
+# Render the vLLM upstream from the active compose profiles. Runs from nginx's
 # /docker-entrypoint.d/ before the server starts.
 #
 # single / tp2 have exactly one backend, so they use a variable proxy_pass:
@@ -9,7 +9,13 @@
 #   replicas are created together by the compose profile, so the names resolve.
 set -eu
 
-MODE="${LLM_MODE:-single}"
+# Derived from the active compose profiles rather than a second LLM_MODE knob:
+# one place to say what this machine serves, nothing to keep in step.
+case ",${COMPOSE_PROFILES:-}," in
+  *,llm-dp2,*) MODE=dp2 ;;
+  *,llm-tp2,*) MODE=tp2 ;;
+  *)           MODE=single ;;
+esac
 
 case "$MODE" in
   single|tp2)
@@ -26,10 +32,6 @@ case "$MODE" in
     keepalive 32;
 }"
     PROXY_TARGET="        proxy_pass http://vllm_pool;"
-    ;;
-  *)
-    echo "llm-gateway: unknown LLM_MODE='$MODE' (expected single|tp2|dp2)" >&2
-    exit 1
     ;;
 esac
 

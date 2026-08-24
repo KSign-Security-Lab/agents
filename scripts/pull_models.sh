@@ -4,7 +4,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-set -a; . docker/.env; set +a
+set -a; . .env; set +a
 
 : "${MODEL_DIR:?}"; : "${INFER_MODEL_DIR:?}"
 mkdir -p "$MODEL_DIR" "$INFER_MODEL_DIR"

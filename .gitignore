@@ -1,12 +1,10 @@
-# Secrets — generated from the .example files by `make setup` / `make dev-setup`
-docker/.env
-docker/.env.dev
+# Machine config — copied from .env.example, never committed
+.env
 *.pem
 *.key
 
-# Runtime data, both sides. Defaults are relative to docker/.
-docker/gpudata/
-docker/devdata/
+# Runtime data: weights, uploads, postgres, redis. DATA_ROOT default.
+data/
 
 # Generated sample documents (recreate with: make samples)
 samples/*

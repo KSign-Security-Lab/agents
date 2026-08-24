@@ -176,7 +176,7 @@ Recorded because each was invisible until a specific test forced it out.
 
 ## Suggested order on a new machine
 
-1. `make gpu` and `make dev`, then confirm `make test` passes and `/ready` reports all
+1. `docker compose up -d` and `make dev`, then confirm `make test` passes and `/ready` reports all
    three dependencies healthy.
 2. `make samples && make ingest FILE=samples/...`, then `make citation-check` and
    **look at the PNGs**. If highlights are off, nothing downstream matters.

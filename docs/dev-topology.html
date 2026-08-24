@@ -274,7 +274,7 @@
 <div class="wrap">
 
   <header>
-    <p class="eyebrow">문서 기반 에이전트 · make gpu / make dev</p>
+    <p class="eyebrow">문서 기반 에이전트 · COMPOSE_PROFILES</p>
     <h1><span class="a">One GPU server</span> serves the models.<br><span class="b">Your laptop</span> runs everything else.</h1>
     <p class="lede">Nothing you run locally needs a GPU, so this works on a Mac. The two services that
     need CUDA live on the shared box; the two services you actually edit run on your host with hot reload.</p>
@@ -377,7 +377,7 @@
       </svg>
     </div>
     <figcaption>Only two arrows leave your machine, and both come out of <span class="inline">api</span>.
-    That is the whole coupling: set <span class="inline">GPU_HOST</span> in <span class="inline">docker/.env.dev</span>
+    That is the whole coupling: set <span class="inline">GPU_HOST</span> in <span class="inline">.env</span>
     and those two URLs resolve. Everything inside the left boundary is yours to break.</figcaption>
   </figure>
 
@@ -388,8 +388,8 @@
 
       <div>
         <div class="roster-head">
-          <span class="chip chip-gpu">make gpu</span>
-          <h3>docker/compose.gpu.yml</h3>
+          <span class="chip chip-gpu">gpu</span>
+          <h3>COMPOSE_PROFILES=gpu,llm-single</h3>
           <span class="note">Two services, both needing CUDA — which is the entire reason they're not local.</span>
         </div>
         <div class="tbl">
@@ -424,8 +424,8 @@
 
       <div>
         <div class="roster-head">
-          <span class="chip chip-loc">make dev</span>
-          <h3>docker/compose.dev.yml + two host processes</h3>
+          <span class="chip chip-loc">dev</span>
+          <h3>COMPOSE_PROFILES=dev, plus two host processes</h3>
           <span class="note">Nothing here needs a GPU, so all of it runs on your laptop.</span>
         </div>
         <div class="tbl">
@@ -482,16 +482,17 @@
         <p class="who">Once, by whoever owns the box — then again only after a reboot.</p>
         <div>
           <p class="step">First time</p>
-<pre><span class="k">make</span> setup            <span class="c"># writes docker/.env</span>
-$EDITOR docker/.env    <span class="c"># VLLM_A_GPUS, BIND_ADDR</span></pre>
+<pre>cp .env.example .env
+$EDITOR .env    <span class="c"># COMPOSE_PROFILES=gpu,llm-single</span>
+                <span class="c"># VLLM_A_GPUS, BIND_ADDR</span></pre>
         </div>
         <div>
           <p class="step">Serve it</p>
-<pre><span class="k">make</span> gpu          <span class="c"># or: make gpu MODE=tp2</span>
-<span class="k">make</span> gpu-logs S=vllm-a</pre>
+<pre>docker compose up -d
+docker compose logs -f vllm-a</pre>
         </div>
-        <p class="who">No Postgres, no Redis, no web, no worker on this box — <span class="inline">compose.gpu.yml</span>
-        contains only these two services.</p>
+        <p class="who">No Postgres, no Redis, no web, no worker on this box — the <span class="inline">gpu</span> profile
+        selects only these services out of <span class="inline">compose.yaml</span>.</p>
       </div>
 
       <div class="card card-loc">
@@ -499,8 +500,8 @@ $EDITOR docker/.env    <span class="c"># VLLM_A_GPUS, BIND_ADDR</span></pre>
         <p class="who">Every developer, on their own laptop.</p>
         <div>
           <p class="step">First time</p>
-<pre><span class="k">make</span> dev-setup
-$EDITOR docker/.env.dev   <span class="c"># set GPU_HOST</span></pre>
+<pre>cp .env.example .env
+$EDITOR .env    <span class="c"># COMPOSE_PROFILES=dev, GPU_HOST</span></pre>
         </div>
         <div>
           <p class="step">Every day</p>
@@ -553,7 +554,7 @@ ssh -N -L 8602:localhost:8602 \
             <td>you're touching ingest — it's a big image, so it stays opt-in</td>
           </tr>
           <tr>
-            <td><code>make dev-down</code> / <code>dev-reset</code></td>
+            <td><code>docker compose down</code> / <code>down -v</code></td>
             <td>stops containers / stops and wipes the local DB</td>
             <td>done for the day / the schema drifted</td>
           </tr>
@@ -584,16 +585,15 @@ ssh -N -L 8602:localhost:8602 \
 
   <div class="callout">
     <p class="step">There is no third mode</p>
-    <p>These two commands are the whole system. <span class="inline">make gpu</span> needs CUDA;
-    <span class="inline">make dev</span> needs nothing but Docker. They're independent, so if you want
+    <p>One compose file, and <span class="inline">COMPOSE_PROFILES</span> says what this machine is. The
+    <span class="inline">gpu</span> profile needs CUDA; <span class="inline">dev</span> needs nothing but Docker. They're independent, so if you want
     everything on one machine you run both — there is no separate all-in-one path to learn, and no
     combined stack that can drift from what developers actually run.</p>
   </div>
 
   <footer>
-    Config is two files and nothing else: <code>docker/.env</code> on the GPU server,
-    <code>docker/.env.dev</code> on your laptop. Both start as <code>.example</code> copies written by
-    <code>make setup</code> and <code>make dev-setup</code>.
+    Config is one file: <code>.env</code> at the repo root, copied from <code>.env.example</code>.
+    Compose reads it, and so does <code>scripts/dev.sh</code>.
   </footer>
 
 </div>

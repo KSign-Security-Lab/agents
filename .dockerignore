@@ -7,8 +7,7 @@
 **/.venv
 **/.pytest_cache
 **/.ruff_cache
-gpudata
-devdata
+data
 .venv
 samples/*
 !samples/.gitkeep

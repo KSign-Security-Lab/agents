@@ -8,27 +8,29 @@
 #    scripts/dev.sh web        just web
 #    scripts/dev.sh exec CMD…  one command in the same environment (make test etc.)
 #
-#  Everything GPU-bound stays on the GPU server; this only ever talks to it over
-#  LLM_BASE_URL / INFER_BASE_URL. Config is docker/.env.dev — one file.
+#  Containers are plain `docker compose` (see compose.yaml); this script exists
+#  only for what compose can't do — run api and web on the host so they reload.
+#  Config is .env at the repo root, the same file compose reads.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="$ROOT/docker/.env.dev"
-COMPOSE="docker compose -f $ROOT/docker/compose.dev.yml"
+ENV_FILE="$ROOT/.env"
+# No -f and no --profile: naming the services activates their profile.
+COMPOSE="docker compose"
 TARGET="${1:-all}"
 
 die() { echo "error: $*" >&2; exit 1; }
 step() { printf '\n\033[36m==> %s\033[0m\n' "$*"; }
 
-[ -f "$ENV_FILE" ] || die "$ENV_FILE not found. Run: make dev-setup"
+[ -f "$ENV_FILE" ] || die "$ENV_FILE not found. Run: cp .env.example .env"
 command -v uv >/dev/null || die "uv not found. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"
 
 # Sourced, not passed to compose as --env-file: compose interpolates from the
 # environment anyway, and the derivations below need shell expansion.
 set -a; . "$ENV_FILE"; set +a
 
-# Derived, so docker/.env.dev only has to name GPU_HOST. Anything already set
+# Derived, so .env only has to name GPU_HOST. Anything already set
 # there wins, which is what makes every line in that file an override.
 GPU_HOST="${GPU_HOST:-localhost}"
 export LLM_BASE_URL="${LLM_BASE_URL:-http://$GPU_HOST:8602/v1}"
@@ -38,7 +40,7 @@ export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-agents}"
 export POSTGRES_DB="${POSTGRES_DB:-agents}"
 export POSTGRES_PORT="${POSTGRES_PORT:-5433}"
 export REDIS_PORT="${REDIS_PORT:-6380}"
-export DEV_DATA_ROOT="${DEV_DATA_ROOT:-./devdata}"
+export DATA_ROOT="${DATA_ROOT:-./data}"
 export API_PORT="${API_PORT:-8000}"
 export WEB_PORT="${WEB_PORT:-3000}"
 export ADMIN_EMAIL="${ADMIN_EMAIL:-dev@agents.dev}"
@@ -50,18 +52,19 @@ export REDIS_URL="${REDIS_URL:-redis://localhost:$REDIS_PORT/0}"
 
 # api and the worker container must agree on where uploads live: the worker's
 # /storage is this directory bind-mounted.
-export STORAGE_ROOT="${STORAGE_ROOT:-$ROOT/docker/${DEV_DATA_ROOT#./}/storage}"
+export STORAGE_ROOT="${STORAGE_ROOT:-$ROOT/${DATA_ROOT#./}/storage}"
 export API_INTERNAL_URL="http://localhost:$API_PORT"
 mkdir -p "$STORAGE_ROOT"
 
 # ------------------------------------------------------------------ deps
 start_deps() {
   step "starting Postgres + Redis"
-  # No array expansion: macOS ships bash 3.2, where "${empty[@]}" trips set -u.
+  # Named explicitly rather than by profile, so this starts the same two
+  # containers whether .env says dev, or gpu,dev on a single-box setup.
   if [ -n "${INGEST:-}" ]; then
-    $COMPOSE --profile ingest up -d --wait
+    $COMPOSE up -d --wait postgres redis worker
   else
-    $COMPOSE up -d --wait
+    $COMPOSE up -d --wait postgres redis
   fi
 }
 
@@ -108,7 +111,7 @@ cleanup() {
   [ ${#PIDS[@]} -gt 0 ] && kill "${PIDS[@]}" 2>/dev/null || true
   wait 2>/dev/null || true
   echo
-  echo "host processes stopped. Postgres/Redis are still up — 'make dev-down' to stop them."
+  echo "host processes stopped. Containers are still up — 'docker compose down' to stop them."
 }
 
 start_api() {
