@@ -63,6 +63,18 @@ else
   ok "no host firewall detected as active"
 fi
 
+# A k3s server is not tainted: it runs the kubelet and schedules workloads like
+# any other node, so it is already an agent and its GPUs are already used. Only
+# servers have this directory, which makes it a reliable way to tell.
+IS_SERVER=false
+[ -d /var/lib/rancher/k3s/server ] && IS_SERVER=true
+
+if [ "$ROLE" = agent ] && [ "$IS_SERVER" = true ]; then
+  die "this node is already the k3s server, and a server schedules workloads
+      itself — there is no agent to add. Its GPUs are advertised by the same
+      device plugin. Run this on the OTHER machine, or 'verify' here."
+fi
+
 # --------------------------------------------------------------------- install
 if [ "$ROLE" = verify ]; then
   command -v k3s >/dev/null || die "k3s is not installed on this node"
@@ -181,6 +193,9 @@ fi
 cat <<EOF
 
 $(printf '\033[32mCluster is ready.\033[0m')
+
+  This node is both server and worker — k3s does not taint the server, so its
+  GPUs are in the pool and a single machine is a complete cluster.
 
   1. get agents/infer:dev onto the nodes      see k8s/README.md
   2. kubectl apply -k k8s/

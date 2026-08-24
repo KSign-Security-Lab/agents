@@ -24,14 +24,36 @@ laptop. It is idempotent, so re-running is also how you check a node.
 
 ```bash
 # the first machine
-k8s/setup.sh server
+sudo k8s/setup.sh server
 
 # its join token, printed for the next machine
 sudo cat /var/lib/rancher/k3s/server/node-token
 
 # every machine after it
-k8s/setup.sh agent <first-machine-ip> <that-token>
+sudo k8s/setup.sh agent <first-machine-ip> <that-token>
 ```
+
+**The server is also a worker.** k3s does not taint the control-plane node, so it
+runs the kubelet, schedules pods, and its GPUs are advertised by the same device
+plugin as everyone else's. Consequences:
+
+- **One machine is a complete cluster.** `sudo k8s/setup.sh server` and you are
+  done — nothing else to install, and that box serves models.
+- **Never run `agent` on the server.** There is no agent to add. The script
+  refuses if you try, rather than half-joining a node to itself.
+- With three machines you get three nodes' worth of GPUs, not two — the server
+  is not held back for control-plane work.
+
+If you ever want the server kept clear of workloads — a small non-GPU box acting
+only as the control plane — install it with a taint instead:
+
+```bash
+curl -sfL https://get.k3s.io | sh -s - server \
+  --write-kubeconfig-mode 644 --node-taint CriticalAddonsOnly=true:NoExecute
+```
+
+That is not the default here because on a three-GPU-machine setup you want all
+three serving.
 
 `sudo k8s/setup.sh verify` checks a node and changes nothing, which is the same
 code path — so a healthy node and a freshly built one are verified identically.
