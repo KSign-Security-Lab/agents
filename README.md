@@ -166,39 +166,11 @@ A's gateway becomes a `least_conn` pool over all three, dropping a server after
 3 failures. Nothing else changes: the application still only knows
 `LLM_BASE_URL`, and developers still set one `GPU_HOST`.
 
-##### Keeping the list in a file instead
-
-`LLM_UPSTREAMS` is baked into the container at create time, so changing it needs
-`docker compose up -d llm-gateway`. (`docker compose restart` silently keeps the
-old value — it reuses the container, and environment is fixed when a container is
-created, not when it starts.) For more than a machine or two, use the file:
-
-```bash
-cp docker/nginx/upstreams.example docker/nginx/upstreams
-$EDITOR docker/nginx/upstreams
-```
-
-```
-vllm:8000            # this machine's own container
-gpu-b:8601           # second GPU box
-gpu-c:8601           # third
-```
-
-It takes one `host:port` per line, ignores blanks and `#` comments — so you can
-label which machine is which — and it wins over `LLM_UPSTREAMS` when present. It
-is gitignored, like `.env`.
-
-The point of the file is that it needs **no container recreate**:
-
-```bash
-docker compose exec llm-gateway sh -c \
-  '/docker-entrypoint.d/40-render-llm.sh && nginx -s reload'
-```
-
-Verified: same container id afterwards, `RestartCount: 0`, nginx master pid
-unchanged, new workers picking up the new config while the old ones drain. So
-in-flight generations aren't dropped — which matters when a request can run for
-minutes.
+Adding machine D is `COMPOSE_PROFILES=model` there, one more entry in A's
+`LLM_UPSTREAMS`, and `docker compose up -d llm-gateway` on A — measured at under
+a second, with no model restarted anywhere. Note `docker compose restart` does
+**not** work for this: it reuses the container, and environment is fixed when a
+container is created, not when it starts.
 
 ##### What you still can't do
 
@@ -282,11 +254,19 @@ text. Numbers can be self-consistent and still point at the wrong line.
 `.env` holds `COMPOSE_PROFILES` plus a handful of values. Anything absent falls
 back to a default that lives next to the code it affects:
 
+**There is one file you edit: `.env`, at the repo root.** Compose interpolates it,
+`apps/api/app/config.py` reads it by absolute path, and nothing else on any
+machine needs touching — including a GPU box that only serves the model.
+
+Everything absent from it falls back to a default that lives next to the code it
+affects, and none of those are meant to be edited per machine:
+
 | Where the default lives | What it covers |
 |---|---|
 | `compose.yaml` — `${VAR:-default}` | paths, ports, GPU indices, model ids, vLLM flags |
 | `apps/api/app/config.py` — the `Settings` class | OCR, chunking, retrieval, agent and topic tuning, each beside the measurement that chose it |
 | `package.json` — the `scripts` block | every command; `pnpm run` prints it |
+| `apps/ruff.toml`, `apps/api/alembic.ini`, `docker/requirements/*.txt` | tool and dependency config, which lives next to what it configures |
 | `apps/api/app/config.py` — the `_assemble` validator | `DATABASE_URL`, `REDIS_URL`, `LLM_BASE_URL`, `INFER_BASE_URL`, built from the ports and `GPU_HOST` so they can't disagree |
 
 To override any `Settings` field, add it to `.env` as `UPPER_CASE`.

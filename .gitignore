@@ -28,5 +28,3 @@ next-env.d.ts
 out/
 logs/
 
-# A machine-specific upstream list, like .env
-docker/nginx/upstreams

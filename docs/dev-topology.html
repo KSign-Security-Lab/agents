@@ -513,10 +513,8 @@
                 <td class="where">nginx · :8602</td>
                 <td>The one URL the application knows. Whether there's one replica behind it or
                 three, here or on other machines, is <code>LLM_UPSTREAMS</code> — a list of
-                addresses it pools with <code>least_conn</code> — either <code>LLM_UPSTREAMS</code>
-                in <code>.env</code>, or <code>docker/nginx/upstreams</code> (one per line, with
-                comments) which applies on a graceful reload with no container recreate. The
-                application never learns.</td>
+                addresses it pools with <code>least_conn</code>, from
+                <code>LLM_UPSTREAMS</code> in <code>.env</code>. The application never learns.</td>
               </tr>
               <tr>
                 <td><span class="svc svc-gpu">vllm</span></td>
@@ -715,8 +713,9 @@ pnpm dev</pre>
 
   <footer>
     Config is one file: <code>.env</code> at the repo root, copied from <code>.env.example</code>.
-    Compose reads it, and so does <code>apps/api/app/config.py</code>, which assembles the
-    database and model URLs from it.
+    Compose interpolates it, and <code>apps/api/app/config.py</code> reads it by absolute path to
+    assemble the database and model URLs — so one file describes a machine, whichever role it has,
+    and there is no second config location anywhere.
   </footer>
 
 </div>
